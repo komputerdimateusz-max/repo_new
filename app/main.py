@@ -1,10 +1,17 @@
 """FastAPI application entrypoint."""
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from app.api.v1.api import api_router
 
 app: FastAPI = FastAPI(title="repo_new API")
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Redirect root path to API documentation."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", tags=["health"])
