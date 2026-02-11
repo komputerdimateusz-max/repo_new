@@ -7,3 +7,4 @@ python-jose
 pytest
 python-dotenv
 jinja2
+httpx
