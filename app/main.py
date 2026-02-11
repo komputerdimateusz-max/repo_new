@@ -1,17 +1,37 @@
 """FastAPI application entrypoint."""
 
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from app.api.v1.api import api_router
 
 app: FastAPI = FastAPI(title="repo_new API")
 
+base_dir: Path = Path(__file__).resolve().parent.parent
+templates: Jinja2Templates = Jinja2Templates(directory=str(base_dir / "frontend" / "templates"))
+app.mount("/static", StaticFiles(directory=str(base_dir / "frontend" / "static")), name="static")
 
-@app.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
-    """Redirect root path to API documentation."""
-    return RedirectResponse(url="/docs")
+
+@app.get("/", include_in_schema=False, response_class=HTMLResponse)
+def index(request: Request) -> HTMLResponse:
+    """Render the public landing page."""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/login", include_in_schema=False, response_class=HTMLResponse)
+def login(request: Request) -> HTMLResponse:
+    """Render a placeholder login page."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/app", include_in_schema=False, response_class=HTMLResponse)
+def app_shell(request: Request) -> HTMLResponse:
+    """Render a placeholder dashboard page."""
+    return templates.TemplateResponse("app.html", {"request": request})
 
 
 @app.get("/health", tags=["health"])
