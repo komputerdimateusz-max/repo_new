@@ -60,3 +60,29 @@ def test_ensure_admin_user_skips_creation_in_non_dev(tmp_path: Path, monkeypatch
     with testing_session_local() as session:
         user: User | None = session.query(User).filter(User.email == "admin@local.dev").first()
         assert user is None
+
+
+def test_ensure_admin_user_skips_when_password_exceeds_bcrypt_limit(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    """Admin seed should log a warning and skip creation for long passwords."""
+    engine = _build_test_engine(tmp_path / "seed_long_password.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(settings, "app_env", "dev")
+    monkeypatch.setattr(settings, "admin_email", "admin@local.dev")
+    monkeypatch.setattr(settings, "admin_password", "🙂" * 19)
+    monkeypatch.setattr(settings, "admin_role", "admin")
+
+    with testing_session_local() as session:
+        ensure_admin_user(session)
+
+    with testing_session_local() as session:
+        user: User | None = session.query(User).filter(User.email == "admin@local.dev").first()
+        assert user is None
+
+    assert "Skipping admin seed" in caplog.text
+    assert "ADMIN_PASSWORD exceeds bcrypt 72-byte limit" in caplog.text

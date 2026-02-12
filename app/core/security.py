@@ -20,6 +20,10 @@ bearer_scheme: HTTPBearer = HTTPBearer(auto_error=True)
 
 def get_password_hash(password: str) -> str:
     """Hash a plaintext password."""
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError(
+            "ADMIN_PASSWORD exceeds bcrypt 72-byte limit. Use a shorter password."
+        )
     return pwd_context.hash(password)
 
 
