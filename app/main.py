@@ -263,6 +263,7 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 message=message,
+                today_iso=today.isoformat(),
                 current_user=user,
             ),
         )
@@ -295,10 +296,36 @@ def menu_page(request: Request) -> HTMLResponse:
         db.close()
 
 
+@app.get("/order", include_in_schema=False, response_class=HTMLResponse)
+def order_page(request: Request) -> HTMLResponse:
+    """Render today's order form for authenticated users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+        today: date = date.today()
+        menu_items: list[MenuItem] = (
+            db.query(MenuItem)
+            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
+            .order_by(MenuItem.id.asc())
+            .all()
+        )
+
+        return templates.TemplateResponse(
+            "order.html",
+            _template_context(request, menu_items=menu_items, current_user=user),
+        )
+    finally:
+        db.close()
+
+
 @app.get("/orders", include_in_schema=False, response_class=HTMLResponse)
 def orders_page(request: Request) -> HTMLResponse:
     """Render current user's orders for selected date (today by default)."""
     selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    message: str | None = request.query_params.get("message")
     try:
         selected_date: date = date.fromisoformat(selected_date_str)
     except ValueError:
@@ -346,6 +373,7 @@ def orders_page(request: Request) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 selected_date=selected_date,
+                message=message,
                 current_user=user,
             ),
         )
@@ -410,8 +438,14 @@ async def submit_order(request: Request) -> RedirectResponse:
     finally:
         db.close()
 
-    message = t("order.updated", get_language(request)).replace(" ", "+")
-    return RedirectResponse(url=f"/app?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+    message = t("orders.success.saved", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/orders?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/order", include_in_schema=False)
+async def submit_order_from_order_page(request: Request) -> RedirectResponse:
+    """Submit order form from dedicated order page."""
+    return await submit_order(request)
 
 
 @app.get("/catering/menu", include_in_schema=False, response_class=HTMLResponse)
@@ -437,6 +471,67 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
                 menu_items=menu_items,
                 message=message,
                 error=None,
+                current_user=user_or_response,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.get("/catering/orders", include_in_schema=False, response_class=HTMLResponse)
+def catering_orders_page(request: Request) -> HTMLResponse:
+    """Render all orders for selected date for catering/admin users."""
+    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    try:
+        selected_date: date = date.fromisoformat(selected_date_str)
+    except ValueError:
+        selected_date = date.today()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        orders: list[Order] = db.query(Order).filter(Order.order_date == selected_date).order_by(Order.id.asc()).all()
+        rows: list[dict[str, object]] = []
+        user_ids: list[int] = [order.user_id for order in orders]
+        user_by_id: dict[int, User] = {}
+        if user_ids:
+            for order_user in db.query(User).filter(User.id.in_(user_ids)).all():
+                user_by_id[order_user.id] = order_user
+
+        for order in orders:
+            menu_item_ids: list[int] = [item.menu_item_id for item in order.items]
+            menu_by_id: dict[int, MenuItem] = {}
+            if menu_item_ids:
+                for menu_item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all():
+                    menu_by_id[menu_item.id] = menu_item
+
+            total_items: int = 0
+            total_cents: int = 0
+            for item in order.items:
+                menu_item: MenuItem | None = menu_by_id.get(item.menu_item_id)
+                if menu_item is None:
+                    continue
+                total_items += item.quantity
+                total_cents += item.quantity * menu_item.price_cents
+            order_user: User | None = user_by_id.get(order.user_id)
+            rows.append(
+                {
+                    "order_id": order.id,
+                    "user_email": order_user.email if order_user is not None else "-",
+                    "items_count": total_items,
+                    "total_cents": total_cents,
+                }
+            )
+
+        return templates.TemplateResponse(
+            "catering_orders.html",
+            _template_context(
+                request,
+                selected_date=selected_date,
+                orders=rows,
                 current_user=user_or_response,
             ),
         )
