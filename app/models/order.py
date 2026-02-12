@@ -37,13 +37,14 @@ class Order(Base):
 
 
 class OrderItem(Base):
-    """Represents a selected menu item in an order."""
+    """Represents a selected catalog item in an order."""
 
     __tablename__ = "order_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
-    menu_item_id: Mapped[int] = mapped_column(ForeignKey("menu_items.id"), nullable=False)
+    catalog_item_id: Mapped[int | None] = mapped_column(ForeignKey("catalog_items.id"), nullable=True)
+    menu_item_id: Mapped[int | None] = mapped_column(ForeignKey("menu_items.id"), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     order: Mapped[Order] = relationship(back_populates="items")

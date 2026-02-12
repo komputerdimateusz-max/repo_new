@@ -1,7 +1,13 @@
 """Schema exports."""
 
 from app.schemas.auth import AuthUserResponse, LoginRequest, RegisterRequest, TokenResponse
-from app.schemas.menu import MenuItemCreate, MenuItemResponse
+from app.schemas.menu import (
+    CatalogItemCreate,
+    CatalogItemResponse,
+    DailyMenuActivationRequest,
+    DailyMenuItemResponse,
+    MenuItemCreate,
+)
 from app.schemas.order import (
     OrderCreate,
     OrderItemPayload,
@@ -17,8 +23,11 @@ __all__ = [
     "LoginRequest",
     "RegisterRequest",
     "TokenResponse",
+    "CatalogItemCreate",
+    "CatalogItemResponse",
+    "DailyMenuActivationRequest",
+    "DailyMenuItemResponse",
     "MenuItemCreate",
-    "MenuItemResponse",
     "OrderCreate",
     "OrderItemPayload",
     "OrderItemResponse",

@@ -24,8 +24,15 @@ from app.db.base import Base
 from app.db import session as db_session
 from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
-from app.models import Location, MenuItem, Order, OrderItem, User
-from app.services.menu_service import create_menu_item, list_menu_items_for_date, toggle_menu_item_active
+from app.models import CatalogItem, DailyMenuItem, Location, Order, OrderItem, User
+from app.services.menu_service import (
+    activate_catalog_item_for_date,
+    create_catalog_item,
+    list_catalog_items,
+    list_menu_items_for_date,
+    list_today_active_daily_items,
+    toggle_menu_item_active,
+)
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
 from app.services.user_service import (
     count_admin_users,
@@ -96,20 +103,21 @@ def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str
     users_by_id: dict[int, User] = {
         user.id: user for user in db.query(User).filter(User.id.in_(user_ids)).all()
     }
-    menu_item_ids: set[int] = {
-        item.menu_item_id
+    catalog_item_ids: set[int] = {
+        item.catalog_item_id
         for order in orders
         for item in order.items
+        if item.catalog_item_id is not None
     }
-    menu_by_id: dict[int, MenuItem] = {
-        item.id: item for item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all()
+    menu_by_id: dict[int, CatalogItem] = {
+        item.id: item for item in db.query(CatalogItem).filter(CatalogItem.id.in_(catalog_item_ids)).all()
     }
 
     for order in orders:
         total_items: int = 0
         total_cents: int = 0
         for item in order.items:
-            menu_item = menu_by_id.get(item.menu_item_id)
+            menu_item = menu_by_id.get(item.catalog_item_id)
             if menu_item is None:
                 continue
             total_items += item.quantity
@@ -141,13 +149,14 @@ def _build_location_group_summary(db: Session, orders: list[Order]) -> list[dict
     if not orders:
         return []
 
-    menu_item_ids: set[int] = {
-        item.menu_item_id
+    catalog_item_ids: set[int] = {
+        item.catalog_item_id
         for order in orders
         for item in order.items
+        if item.catalog_item_id is not None
     }
-    menu_by_id: dict[int, MenuItem] = {
-        item.id: item for item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all()
+    menu_by_id: dict[int, CatalogItem] = {
+        item.id: item for item in db.query(CatalogItem).filter(CatalogItem.id.in_(catalog_item_ids)).all()
     }
 
     grouped: dict[int, dict[str, object]] = {}
@@ -167,7 +176,7 @@ def _build_location_group_summary(db: Session, orders: list[Order]) -> list[dict
 
         bucket["orders_count"] += 1
         for item in order.items:
-            menu_item = menu_by_id.get(item.menu_item_id)
+            menu_item = menu_by_id.get(item.catalog_item_id)
             if menu_item is None:
                 continue
             bucket["total_items"] += item.quantity
@@ -184,6 +193,12 @@ def _parse_menu_price_to_cents(price_raw: str) -> int:
         raise ValueError("Price must be greater than zero")
     cents: Decimal = (decimal_value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     return int(cents)
+
+
+def _list_today_catalog_items(db: Session, target_date: date) -> list[CatalogItem]:
+    """Return catalog dishes that are enabled for the selected day."""
+    daily_rows: list[DailyMenuItem] = list_today_active_daily_items(db=db, menu_date=target_date)
+    return [row.catalog_item for row in daily_rows]
 
 
 def _ensure_location_schema_compatibility() -> None:
@@ -406,12 +421,7 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[MenuItem] = (
-            db.query(MenuItem)
-            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
-            .order_by(MenuItem.id.asc())
-            .all()
-        )
+        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
 
         order: Order | None = (
             db.query(Order)
@@ -422,16 +432,18 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
         total_cents: int = 0
 
         if order is not None:
-            menu_by_id: dict[int, MenuItem] = {item.id: item for item in menu_items}
+            menu_by_id: dict[int, CatalogItem] = {item.id: item for item in menu_items}
             missing_ids: list[int] = [
-                item.menu_item_id for item in order.items if item.menu_item_id not in menu_by_id
+                item.catalog_item_id
+                for item in order.items
+                if item.catalog_item_id is not None and item.catalog_item_id not in menu_by_id
             ]
             if missing_ids:
-                for menu_item in db.query(MenuItem).filter(MenuItem.id.in_(missing_ids)).all():
+                for menu_item in db.query(CatalogItem).filter(CatalogItem.id.in_(missing_ids)).all():
                     menu_by_id[menu_item.id] = menu_item
 
             for item in order.items:
-                menu_item = menu_by_id.get(item.menu_item_id)
+                menu_item = menu_by_id.get(item.catalog_item_id)
                 if menu_item is None:
                     continue
                 line_total: int = menu_item.price_cents * item.quantity
@@ -471,12 +483,7 @@ def menu_page(request: Request) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[MenuItem] = (
-            db.query(MenuItem)
-            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
-            .order_by(MenuItem.id.asc())
-            .all()
-        )
+        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
 
         return templates.TemplateResponse(
             "menu.html",
@@ -518,14 +525,14 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
         total_cents: int = 0
 
         if order is not None:
-            menu_item_ids = [item.menu_item_id for item in order.items]
-            menu_by_id: dict[int, MenuItem] = {}
-            if menu_item_ids:
-                for menu_item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all():
+            catalog_item_ids = [item.catalog_item_id for item in order.items if item.catalog_item_id is not None]
+            menu_by_id: dict[int, CatalogItem] = {}
+            if catalog_item_ids:
+                for menu_item in db.query(CatalogItem).filter(CatalogItem.id.in_(catalog_item_ids)).all():
                     menu_by_id[menu_item.id] = menu_item
 
             for item in order.items:
-                menu_item = menu_by_id.get(item.menu_item_id)
+                menu_item = menu_by_id.get(item.catalog_item_id)
                 if menu_item is None:
                     continue
                 line_total: int = menu_item.price_cents * item.quantity
@@ -568,12 +575,12 @@ def _parse_quantities(form_data: dict[str, list[str]]) -> dict[int, int]:
         if not key.startswith("qty_"):
             continue
         try:
-            menu_item_id = int(key.replace("qty_", ""))
+            catalog_item_id = int(key.replace("qty_", ""))
             quantity = int(values[0] if values else "0")
         except ValueError:
             continue
         if quantity >= 0:
-            quantities[menu_item_id] = quantity
+            quantities[catalog_item_id] = quantity
     return quantities
 
 
@@ -593,12 +600,7 @@ def _render_order_page(
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[MenuItem] = (
-            db.query(MenuItem)
-            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
-            .order_by(MenuItem.id.asc())
-            .all()
-        )
+        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
         locations: list[Location] = (
             db.query(Location)
             .filter(Location.is_active.is_(True))
@@ -871,10 +873,16 @@ async def submit_order(request: Request) -> Response:
 
         db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 
-        for menu_item_id, quantity in quantities.items():
+        allowed_catalog_ids: set[int] = {
+            item.id for item in _list_today_catalog_items(db=db, target_date=target_date)
+        }
+
+        for catalog_item_id, quantity in quantities.items():
             if quantity < 1:
                 continue
-            db.add(OrderItem(order_id=order.id, menu_item_id=menu_item_id, quantity=quantity))
+            if catalog_item_id not in allowed_catalog_ids:
+                continue
+            db.add(OrderItem(order_id=order.id, catalog_item_id=catalog_item_id, quantity=quantity))
 
         db.commit()
     finally:
@@ -894,13 +902,19 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        menu_items: list[MenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        catalog_items: list[CatalogItem] = list_catalog_items(db=db)
+        today_items: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        enabled_today_ids: set[int] = {
+            item.catalog_item_id for item in today_items if item.is_active and item.catalog_item.is_active
+        }
         return templates.TemplateResponse(
             "catering_menu.html",
             _template_context(
                 request,
                 selected_date=selected_date,
-                menu_items=menu_items,
+                catalog_items=catalog_items,
+                today_items=today_items,
+                enabled_today_ids=enabled_today_ids,
                 message=message,
                 error=None,
                 current_user=user_or_response,
@@ -912,9 +926,8 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
 
 @app.post("/catering/menu", include_in_schema=False)
 async def catering_menu_create(request: Request) -> Response:
-    """Create menu item from catering/admin HTML form."""
+    """Create catalog item from catering/admin HTML form."""
     form_data = parse_qs((await request.body()).decode("utf-8"))
-    selected_date: date = date.today()
 
     db: Session = db_session.SessionLocal()
     try:
@@ -929,13 +942,14 @@ async def catering_menu_create(request: Request) -> Response:
 
         if not name:
             error_message = t("menu.error.name_required", get_language(request))
-            menu_items = list_menu_items_for_date(db=db, menu_date=selected_date)
             return templates.TemplateResponse(
                 "catering_menu.html",
                 _template_context(
                     request,
-                    selected_date=selected_date,
-                    menu_items=menu_items,
+                    selected_date=date.today(),
+                    catalog_items=list_catalog_items(db=db),
+                    today_items=list_menu_items_for_date(db=db, menu_date=date.today()),
+                    enabled_today_ids=set(),
                     message=None,
                     error=error_message,
                     current_user=user_or_response,
@@ -947,13 +961,14 @@ async def catering_menu_create(request: Request) -> Response:
             price_cents: int = _parse_menu_price_to_cents(price_raw)
         except (InvalidOperation, ValueError):
             error_message = t("menu.error.invalid_price", get_language(request))
-            menu_items = list_menu_items_for_date(db=db, menu_date=selected_date)
             return templates.TemplateResponse(
                 "catering_menu.html",
                 _template_context(
                     request,
-                    selected_date=selected_date,
-                    menu_items=menu_items,
+                    selected_date=date.today(),
+                    catalog_items=list_catalog_items(db=db),
+                    today_items=list_menu_items_for_date(db=db, menu_date=date.today()),
+                    enabled_today_ids=set(),
                     message=None,
                     error=error_message,
                     current_user=user_or_response,
@@ -961,9 +976,8 @@ async def catering_menu_create(request: Request) -> Response:
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        create_menu_item(
+        create_catalog_item(
             db=db,
-            menu_date=selected_date,
             name=name,
             description=description_raw or None,
             price_cents=price_cents,
@@ -979,18 +993,32 @@ async def catering_menu_create(request: Request) -> Response:
     )
 
 
-@app.post("/catering/menu/{menu_item_id}/toggle", include_in_schema=False)
-def catering_menu_toggle(request: Request, menu_item_id: int) -> RedirectResponse:
-    """Toggle active state for selected menu item."""
+@app.post("/catering/menu/{catalog_item_id}/toggle", include_in_schema=False)
+def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResponse:
+    """Toggle active state for selected catalog item for today."""
     db: Session = db_session.SessionLocal()
     try:
         user_or_response = _require_menu_manager_user(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        menu_item: MenuItem | None = db.query(MenuItem).filter(MenuItem.id == menu_item_id).first()
-        if menu_item is not None:
-            toggle_menu_item_active(db=db, menu_item=menu_item)
+        daily_item: DailyMenuItem | None = (
+            db.query(DailyMenuItem)
+            .filter(
+                DailyMenuItem.catalog_item_id == catalog_item_id,
+                DailyMenuItem.menu_date == date.today(),
+            )
+            .first()
+        )
+        if daily_item is None:
+            activate_catalog_item_for_date(
+                db=db,
+                catalog_item_id=catalog_item_id,
+                menu_date=date.today(),
+                is_active=True,
+            )
+        else:
+            toggle_menu_item_active(db=db, menu_item=daily_item)
     finally:
         db.close()
 
