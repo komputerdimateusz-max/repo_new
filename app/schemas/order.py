@@ -16,6 +16,8 @@ class OrderCreate(BaseModel):
     """Create or replace today's order items."""
 
     items: list[OrderItemPayload]
+    location_id: int | None = None
+    order_for_next_day: bool = False
 
 
 class OrderItemResponse(BaseModel):

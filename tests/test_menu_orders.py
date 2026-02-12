@@ -1,6 +1,6 @@
 """Menu and order endpoint tests."""
 
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
+from app.models.location import Location
 
 
 def _build_test_engine(db_file: Path) -> Engine:
@@ -145,10 +146,17 @@ def test_post_orders_creates_order_and_get_me_returns_it(tmp_path: Path, monkeyp
         assert menu_response.status_code == 201
         menu_id = menu_response.json()["id"]
 
+        with testing_session_local() as setup_session:
+            location = Location(company_name="Api Co", address="Api Street", is_active=True, cutoff_time=time(23, 59))
+            setup_session.add(location)
+            setup_session.commit()
+            setup_session.refresh(location)
+            location_id = location.id
+
         employee_headers = _auth_headers(client, "employee-order@example.com", "employee")
         order_response = client.post(
             "/api/v1/orders",
-            json={"items": [{"menu_item_id": menu_id, "quantity": 2}]},
+            json={"location_id": location_id, "items": [{"menu_item_id": menu_id, "quantity": 2}]},
             headers=employee_headers,
         )
         me_response = client.get("/api/v1/orders/me", headers=employee_headers)

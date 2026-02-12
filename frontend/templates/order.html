@@ -12,6 +12,23 @@
 <p class="alert alert-error" role="alert">{{ error }}</p>
 {% endif %}
 
+{% if cutoff_prompt %}
+<section class="card stack-md" aria-label="Cut-off warning">
+  <p class="alert alert-error" role="alert">{{ t('order.cutoff_prompt', lang) }}</p>
+  <form method="post" action="/app/order" class="stack-md">
+    <input type="hidden" name="location_id" value="{{ selected_location_id }}" />
+    {% for item in menu_items %}
+    <input type="hidden" name="qty_{{ item.id }}" value="{{ quantities.get(item.id, 0) }}" />
+    {% endfor %}
+    <input type="hidden" name="order_for_next_day" value="1" />
+    <div class="row-actions">
+      <button type="submit" class="btn btn-primary">{{ t('order.next_day_confirm', lang) }}</button>
+      <a href="/app" class="btn btn-secondary">{{ t('order.next_day_cancel', lang) }}</a>
+    </div>
+  </form>
+</section>
+{% endif %}
+
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
   {% if menu_items %}
   <form method="post" action="/app/order" class="stack-md">
@@ -20,7 +37,7 @@
       <select name="location_id" required>
         <option value="">{{ t('order.select_location_placeholder', lang) }}</option>
         {% for location in locations %}
-        <option value="{{ location.id }}">{{ location.company_name }} — {{ location.address }}</option>
+        <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
         {% endfor %}
       </select>
     </label>
@@ -34,7 +51,7 @@
       <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
       <label class="field">
         <span>{{ t('dashboard.quantity', lang) }}</span>
-        <input type="number" min="0" name="qty_{{ item.id }}" value="0" />
+        <input type="number" min="0" name="qty_{{ item.id }}" value="{{ quantities.get(item.id, 0) }}" />
       </label>
     </div>
     {% endfor %}

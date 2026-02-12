@@ -1,5 +1,6 @@
 """Application configuration."""
 
+from datetime import time
 from os import getenv
 
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ class Settings(BaseModel):
     admin_email: str = getenv("ADMIN_EMAIL", "admin@local.dev")
     admin_password: str = getenv("ADMIN_PASSWORD", "Admin123!")
     admin_role: str = getenv("ADMIN_ROLE", "admin")
+    app_default_cutoff_time: time = time.fromisoformat(getenv("APP_DEFAULT_CUTOFF_TIME", "10:00"))
 
 
 settings: Settings = Settings()
