@@ -75,6 +75,55 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
     assert "Menu" in response.text
 
 
+def test_get_catering_orders_as_employee_is_forbidden(tmp_path: Path, monkeypatch) -> None:
+    """Employee should not access catering orders page."""
+    engine = _build_test_engine(tmp_path / "test_catering_orders_employee.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        _login_with_role(client, "employee-orders@example.com", "employee")
+        response = client.get("/catering/orders", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/app")
+
+
+def test_get_catering_orders_as_admin_returns_ok(tmp_path: Path, monkeypatch) -> None:
+    """Admin should access catering orders page."""
+    engine = _build_test_engine(tmp_path / "test_catering_orders_admin.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        _login_with_role(client, "admin-orders@example.com", "admin")
+        response = client.get("/catering/orders")
+
+    assert response.status_code == 200
+
+
+def test_get_catering_orders_as_catering_returns_ok(tmp_path: Path, monkeypatch) -> None:
+    """Catering should access catering orders page."""
+    engine = _build_test_engine(tmp_path / "test_catering_orders_catering.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        _login_with_role(client, "catering-orders@example.com", "catering")
+        response = client.get("/catering/orders")
+
+    assert response.status_code == 200
+
+
 
 def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypatch) -> None:
     """Catering POST should create menu item and redirect."""
