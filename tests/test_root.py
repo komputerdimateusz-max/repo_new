@@ -23,8 +23,16 @@ def test_login_page_renders() -> None:
     assert response.status_code == 200
 
 
-def test_app_page_renders() -> None:
-    """App endpoint should render the dashboard placeholder page."""
-    response = client.get("/app")
+def test_register_page_renders() -> None:
+    """Register endpoint should render the registration page."""
+    response = client.get("/register")
 
     assert response.status_code == 200
+
+
+def test_app_page_requires_authentication() -> None:
+    """App endpoint should redirect unauthenticated users to login."""
+    response = client.get("/app", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
