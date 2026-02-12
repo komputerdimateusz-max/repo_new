@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class OrderItemPayload(BaseModel):
     """Single order item payload."""
 
-    menu_item_id: int
+    catalog_item_id: int
     quantity: int = Field(default=1, ge=1)
 
 
@@ -23,7 +23,7 @@ class OrderCreate(BaseModel):
 class OrderItemResponse(BaseModel):
     """Serialized order item."""
 
-    menu_item_id: int
+    catalog_item_id: int
     quantity: int
 
 
@@ -39,7 +39,7 @@ class OrderResponse(BaseModel):
 class UserOrderItemResponse(BaseModel):
     """Serialized order item enriched with menu details."""
 
-    menu_item_id: int
+    catalog_item_id: int
     name: str
     quantity: int
     price_cents: int

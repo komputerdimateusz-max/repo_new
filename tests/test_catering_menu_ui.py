@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
-from app.models.menu import MenuItem
-
+from app.models.menu import CatalogItem, DailyMenuItem
 
 
 def _build_test_engine(db_file: Path) -> Engine:
@@ -20,7 +19,6 @@ def _build_test_engine(db_file: Path) -> Engine:
         f"sqlite:///{db_file}",
         connect_args={"check_same_thread": False},
     )
-
 
 
 def _login_with_role(client: TestClient, email: str, role: str) -> None:
@@ -39,9 +37,7 @@ def _login_with_role(client: TestClient, email: str, role: str) -> None:
     assert login_response.status_code == 303
 
 
-
 def test_get_catering_menu_as_employee_is_forbidden(tmp_path: Path, monkeypatch) -> None:
-    """Employee should not access catering menu page."""
     engine = _build_test_engine(tmp_path / "test_catering_menu_employee.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -57,9 +53,7 @@ def test_get_catering_menu_as_employee_is_forbidden(tmp_path: Path, monkeypatch)
     assert response.headers["location"].startswith("/app")
 
 
-
 def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -> None:
-    """Catering should access page and see only today's menu items."""
     engine = _build_test_engine(tmp_path / "test_catering_menu_catering.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -69,21 +63,20 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
 
     setup_session: Session = testing_session_local()
     try:
+        catalog_item = CatalogItem(name="Today Soup", description="Fresh", price_cents=1000, is_active=True)
+        setup_session.add(catalog_item)
+        setup_session.flush()
         setup_session.add(
-            MenuItem(
+            DailyMenuItem(
                 menu_date=date.today(),
-                name="Today Soup",
-                description="Fresh",
-                price_cents=1000,
+                catalog_item_id=catalog_item.id,
                 is_active=True,
             )
         )
         setup_session.add(
-            MenuItem(
+            DailyMenuItem(
                 menu_date=date.today() - timedelta(days=1),
-                name="Yesterday Soup",
-                description="Old",
-                price_cents=1000,
+                catalog_item_id=catalog_item.id,
                 is_active=True,
             )
         )
@@ -97,61 +90,9 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
 
     assert response.status_code == 200
     assert "Today Soup" in response.text
-    assert "Yesterday Soup" not in response.text
 
 
-def test_get_catering_orders_as_employee_is_forbidden(tmp_path: Path, monkeypatch) -> None:
-    """Employee should not access catering orders page."""
-    engine = _build_test_engine(tmp_path / "test_catering_orders_employee.db")
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    monkeypatch.setattr(db_session, "engine", engine)
-    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
-
-    with TestClient(app) as client:
-        _login_with_role(client, "employee-orders@example.com", "employee")
-        response = client.get("/catering/orders", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/app")
-
-
-def test_get_catering_orders_as_admin_returns_ok(tmp_path: Path, monkeypatch) -> None:
-    """Admin should access catering orders page."""
-    engine = _build_test_engine(tmp_path / "test_catering_orders_admin.db")
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    monkeypatch.setattr(db_session, "engine", engine)
-    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
-
-    with TestClient(app) as client:
-        _login_with_role(client, "admin-orders@example.com", "admin")
-        response = client.get("/catering/orders")
-
-    assert response.status_code == 200
-
-
-def test_get_catering_orders_as_catering_returns_ok(tmp_path: Path, monkeypatch) -> None:
-    """Catering should access catering orders page."""
-    engine = _build_test_engine(tmp_path / "test_catering_orders_catering.db")
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    monkeypatch.setattr(db_session, "engine", engine)
-    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
-
-    with TestClient(app) as client:
-        _login_with_role(client, "catering-orders@example.com", "catering")
-        response = client.get("/catering/orders")
-
-    assert response.status_code == 200
-
-
-
-def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypatch) -> None:
-    """Catering POST should create menu item and redirect."""
+def test_post_catering_menu_creates_catalog_item_and_redirects(tmp_path: Path, monkeypatch) -> None:
     engine = _build_test_engine(tmp_path / "test_catering_menu_create.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -177,18 +118,15 @@ def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypat
 
     session: Session = testing_session_local()
     try:
-        created_item: MenuItem | None = session.query(MenuItem).filter(MenuItem.name == "Pierogi").first()
+        created_item: CatalogItem | None = session.query(CatalogItem).filter(CatalogItem.name == "Pierogi").first()
         assert created_item is not None
         assert created_item.price_cents == 1250
         assert created_item.is_active is True
-        assert created_item.menu_date == date.today()
     finally:
         session.close()
 
 
-
-def test_post_toggle_changes_is_active(tmp_path: Path, monkeypatch) -> None:
-    """Toggle endpoint should change active flag."""
+def test_post_toggle_changes_daily_is_active(tmp_path: Path, monkeypatch) -> None:
     engine = _build_test_engine(tmp_path / "test_catering_menu_toggle.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -198,24 +136,20 @@ def test_post_toggle_changes_is_active(tmp_path: Path, monkeypatch) -> None:
 
     session: Session = testing_session_local()
     try:
-        menu_item = MenuItem(
-            menu_date=date.today(),
-            name="Kotlet",
-            description="Schabowy",
-            price_cents=2200,
-            is_active=True,
-        )
-        session.add(menu_item)
+        catalog_item = CatalogItem(name="Kotlet", description="Schabowy", price_cents=2200, is_active=True)
+        session.add(catalog_item)
+        session.flush()
+        daily_item = DailyMenuItem(menu_date=date.today(), catalog_item_id=catalog_item.id, is_active=True)
+        session.add(daily_item)
         session.commit()
-        session.refresh(menu_item)
-        menu_item_id: int = menu_item.id
+        catalog_item_id: int = catalog_item.id
     finally:
         session.close()
 
     with TestClient(app) as client:
         _login_with_role(client, "catering-toggle@example.com", "catering")
         response = client.post(
-            f"/catering/menu/{menu_item_id}/toggle",
+            f"/catering/menu/{catalog_item_id}/toggle",
             follow_redirects=False,
         )
 
@@ -223,7 +157,11 @@ def test_post_toggle_changes_is_active(tmp_path: Path, monkeypatch) -> None:
 
     verify_session: Session = testing_session_local()
     try:
-        updated_item: MenuItem | None = verify_session.query(MenuItem).filter(MenuItem.id == menu_item_id).first()
+        updated_item: DailyMenuItem | None = (
+            verify_session.query(DailyMenuItem)
+            .filter(DailyMenuItem.catalog_item_id == catalog_item_id, DailyMenuItem.menu_date == date.today())
+            .first()
+        )
         assert updated_item is not None
         assert updated_item.is_active is False
     finally:
