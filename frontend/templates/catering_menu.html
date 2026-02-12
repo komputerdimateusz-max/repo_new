@@ -16,20 +16,8 @@
 {% endif %}
 
 <section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.select_date', lang) }}</h2>
-  <form method="get" action="/catering/menu" class="stack-md">
-    <label class="field">
-      <span>{{ t('menu.date', lang) }}</span>
-      <input type="date" name="date" value="{{ selected_date.isoformat() }}" />
-    </label>
-    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
-  </form>
-</section>
-
-<section class="card stack-md top-gap-sm">
   <h2>{{ t('menu.add_item', lang) }}</h2>
   <form method="post" action="/catering/menu" class="stack-md">
-    <input type="hidden" name="menu_date" value="{{ selected_date.isoformat() }}" />
     <label class="field">
       <span>{{ t('menu.name', lang) }}</span>
       <input type="text" name="name" required />
@@ -72,7 +60,7 @@
               {{ t('menu.status_inactive', lang) }}
               {% endif %}
             </span>
-            <form method="post" action="/catering/menu/{{ item.id }}/toggle?date={{ selected_date.isoformat() }}">
+            <form method="post" action="/catering/menu/{{ item.id }}/toggle">
               <button type="submit" class="btn btn-secondary btn-inline">
                 {% if item.is_active %}
                 {{ t('menu.disable', lang) }}

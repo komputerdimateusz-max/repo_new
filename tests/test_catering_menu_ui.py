@@ -1,6 +1,6 @@
 """Catering menu management HTML flow tests."""
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -59,7 +59,7 @@ def test_get_catering_menu_as_employee_is_forbidden(tmp_path: Path, monkeypatch)
 
 
 def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -> None:
-    """Catering should access catering menu page."""
+    """Catering should access page and see only today's menu items."""
     engine = _build_test_engine(tmp_path / "test_catering_menu_catering.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -67,12 +67,37 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(db_session, "engine", engine)
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
+    setup_session: Session = testing_session_local()
+    try:
+        setup_session.add(
+            MenuItem(
+                menu_date=date.today(),
+                name="Today Soup",
+                description="Fresh",
+                price_cents=1000,
+                is_active=True,
+            )
+        )
+        setup_session.add(
+            MenuItem(
+                menu_date=date.today() - timedelta(days=1),
+                name="Yesterday Soup",
+                description="Old",
+                price_cents=1000,
+                is_active=True,
+            )
+        )
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
     with TestClient(app) as client:
         _login_with_role(client, "catering-ui@example.com", "catering")
-        response = client.get(f"/catering/menu?date={date.today().isoformat()}")
+        response = client.get("/catering/menu")
 
     assert response.status_code == 200
-    assert "Menu" in response.text
+    assert "Today Soup" in response.text
+    assert "Yesterday Soup" not in response.text
 
 
 def test_get_catering_orders_as_employee_is_forbidden(tmp_path: Path, monkeypatch) -> None:
@@ -134,14 +159,11 @@ def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypat
     monkeypatch.setattr(db_session, "engine", engine)
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
-    target_date = date.today().isoformat()
-
     with TestClient(app) as client:
         _login_with_role(client, "admin-ui@example.com", "admin")
         response = client.post(
             "/catering/menu",
             data={
-                "menu_date": target_date,
                 "name": "Pierogi",
                 "description": "Ruskie",
                 "price": "12.50",
@@ -151,7 +173,7 @@ def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypat
         )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith(f"/catering/menu?date={target_date}")
+    assert response.headers["location"].startswith("/catering/menu?message=")
 
     session: Session = testing_session_local()
     try:
@@ -159,6 +181,7 @@ def test_post_catering_menu_creates_item_and_redirects(tmp_path: Path, monkeypat
         assert created_item is not None
         assert created_item.price_cents == 1250
         assert created_item.is_active is True
+        assert created_item.menu_date == date.today()
     finally:
         session.close()
 
@@ -192,7 +215,7 @@ def test_post_toggle_changes_is_active(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         _login_with_role(client, "catering-toggle@example.com", "catering")
         response = client.post(
-            f"/catering/menu/{menu_item_id}/toggle?date={date.today().isoformat()}",
+            f"/catering/menu/{menu_item_id}/toggle",
             follow_redirects=False,
         )
 

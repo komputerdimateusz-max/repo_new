@@ -588,11 +588,7 @@ async def submit_order(request: Request) -> RedirectResponse:
 @app.get("/catering/menu", include_in_schema=False, response_class=HTMLResponse)
 def catering_menu_page(request: Request, message: str | None = None) -> HTMLResponse:
     """Render catering/admin menu management page."""
-    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
-    try:
-        selected_date: date = date.fromisoformat(selected_date_str)
-    except ValueError:
-        selected_date = date.today()
+    selected_date: date = date.today()
     db: Session = db_session.SessionLocal()
     try:
         user_or_response = _require_menu_manager_user(request, db)
@@ -619,7 +615,7 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
 async def catering_menu_create(request: Request) -> Response:
     """Create menu item from catering/admin HTML form."""
     form_data = parse_qs((await request.body()).decode("utf-8"))
-    selected_date_str: str = form_data.get("menu_date", [date.today().isoformat()])[0]
+    selected_date: date = date.today()
 
     db: Session = db_session.SessionLocal()
     try:
@@ -627,11 +623,6 @@ async def catering_menu_create(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        try:
-            selected_date = date.fromisoformat(selected_date_str)
-        except ValueError:
-            selected_date = date.today()
-            selected_date_str = selected_date.isoformat()
         name: str = form_data.get("name", [""])[0].strip()
         description_raw: str = form_data.get("description", [""])[0].strip()
         price_raw: str = form_data.get("price", [""])[0]
@@ -684,7 +675,7 @@ async def catering_menu_create(request: Request) -> Response:
 
     success_message: str = t("menu.success.created", get_language(request)).replace(" ", "+")
     return RedirectResponse(
-        url=f"/catering/menu?date={selected_date_str}&message={success_message}",
+        url=f"/catering/menu?message={success_message}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -692,12 +683,6 @@ async def catering_menu_create(request: Request) -> Response:
 @app.post("/catering/menu/{menu_item_id}/toggle", include_in_schema=False)
 def catering_menu_toggle(request: Request, menu_item_id: int) -> RedirectResponse:
     """Toggle active state for selected menu item."""
-    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
-    try:
-        selected_date: date = date.fromisoformat(selected_date_str)
-    except ValueError:
-        selected_date = date.today()
-    selected_date_str: str = selected_date.isoformat()
     db: Session = db_session.SessionLocal()
     try:
         user_or_response = _require_menu_manager_user(request, db)
@@ -711,7 +696,7 @@ def catering_menu_toggle(request: Request, menu_item_id: int) -> RedirectRespons
         db.close()
 
     return RedirectResponse(
-        url=f"/catering/menu?date={selected_date_str}",
+        url="/catering/menu",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
