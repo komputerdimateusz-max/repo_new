@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models.menu import MenuItem
 from app.models.user import User
 from app.schemas.menu import MenuItemCreate, MenuItemResponse
+from app.services.menu_service import create_menu_item as create_menu_item_record, list_menu_items_for_date
 
 router: APIRouter = APIRouter()
 ALLOWED_MENU_ROLES: set[str] = {"catering", "admin"}
@@ -37,17 +38,14 @@ def create_menu_item(
     if current_user.role not in ALLOWED_MENU_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    menu_item = MenuItem(
+    return create_menu_item_record(
+        db=db,
         menu_date=payload.menu_date,
         name=payload.name,
         description=payload.description,
         price_cents=payload.price_cents,
         is_active=payload.is_active,
     )
-    db.add(menu_item)
-    db.commit()
-    db.refresh(menu_item)
-    return menu_item
 
 
 @router.get("", response_model=list[MenuItemResponse])
@@ -60,9 +58,4 @@ def get_menu_for_date(
     if current_user.role not in ALLOWED_MENU_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    return (
-        db.query(MenuItem)
-        .filter(MenuItem.menu_date == date_value)
-        .order_by(MenuItem.id.asc())
-        .all()
-    )
+    return list_menu_items_for_date(db=db, menu_date=date_value)
