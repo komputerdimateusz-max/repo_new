@@ -26,3 +26,22 @@ def create_user(db: Session, email: str, hashed_password: str, role: str) -> Use
     db.commit()
     db.refresh(user)
     return user
+
+
+def list_users(db: Session) -> list[User]:
+    """Return all users sorted by identifier."""
+    return db.query(User).order_by(User.id.asc()).all()
+
+
+def update_user_role(db: Session, user: User, role: str) -> User:
+    """Update and persist user's role."""
+    user.role = role
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def count_admin_users(db: Session) -> int:
+    """Return count of users with admin role."""
+    return db.query(User).filter(User.role == "admin").count()

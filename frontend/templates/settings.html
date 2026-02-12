@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('settings.title', lang) }} · repo_new{% endblock %}
+
+{% block content %}
+<section class="card stack" style="max-width: 980px; margin: 0 auto;">
+  <h1>{{ t('settings.title', lang) }}</h1>
+  {% if message %}
+  <p class="success-message">{{ message }}</p>
+  {% endif %}
+
+  <h2>{{ t('settings.user_roles', lang) }}</h2>
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_id', lang) }}</th>
+          <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_email', lang) }}</th>
+          <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_role', lang) }}</th>
+          <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_action', lang) }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td style="padding: 0.5rem;">{{ user.id }}</td>
+          <td style="padding: 0.5rem;">{{ user.email }}</td>
+          <td style="padding: 0.5rem;">
+            <form method="post" action="/settings/users/{{ user.id }}/role" class="form-inline">
+              <select name="role" aria-label="{{ t('settings.column_role', lang) }}">
+                {% for role in ['employee', 'company', 'catering', 'admin'] %}
+                <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ t('role.' ~ role, lang) }}</option>
+                {% endfor %}
+              </select>
+          </td>
+          <td style="padding: 0.5rem;">
+              <button type="submit">{{ t('settings.save', lang) }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
