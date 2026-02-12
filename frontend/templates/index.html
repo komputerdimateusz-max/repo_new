@@ -4,15 +4,13 @@
 
 {% block content %}
 <header class="stack-lg">
-  <p class="eyebrow">Meal ordering platform</p>
+  <p class="eyebrow">{{ t('index.eyebrow', lang) }}</p>
   <h1>repo_new</h1>
-  <p class="lead">
-    A simple and mobile-first meal ordering experience for employees and companies.
-  </p>
+  <p class="lead">{{ t('index.lead', lang) }}</p>
 </header>
 
 <section class="stack-md">
-  <a class="btn btn-primary" href="/login">Log in</a>
-  <a class="btn btn-secondary" href="/docs">View API Docs</a>
+  <a class="btn btn-primary" href="/login">{{ t('index.login', lang) }}</a>
+  <a class="btn btn-secondary" href="/docs">{{ t('index.docs', lang) }}</a>
 </section>
 {% endblock %}

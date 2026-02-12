@@ -1,0 +1,107 @@
+"""Simple translation helpers for server-rendered templates."""
+
+from fastapi import Request
+
+SUPPORTED_LANGUAGES: set[str] = {"en", "pl"}
+DEFAULT_LANGUAGE: str = "en"
+
+TRANSLATIONS: dict[str, dict[str, str]] = {
+    "en": {
+        "nav.home": "Home",
+        "nav.login": "Log in",
+        "nav.register": "Register",
+        "nav.app": "Dashboard",
+        "index.eyebrow": "Meal ordering platform",
+        "index.lead": "A simple and mobile-first meal ordering experience for employees and companies.",
+        "index.login": "Log in",
+        "index.docs": "View API Docs",
+        "login.title": "Sign in",
+        "login.lead": "Use your account to continue to your dashboard.",
+        "login.email": "Email",
+        "login.password": "Password",
+        "login.submit": "Sign in",
+        "login.create_account": "Create account",
+        "back.home": "Back to Home",
+        "register.title": "Create account",
+        "register.lead": "Create a new account to access the meal ordering dashboard.",
+        "register.role": "Role",
+        "register.submit": "Create account",
+        "back.login": "Back to Login",
+        "role.employee": "Employee",
+        "role.company": "Company",
+        "role.catering": "Catering",
+        "role.admin": "Admin",
+        "dashboard.title": "Dashboard",
+        "dashboard.lead": "Place today's order and review your current selection.",
+        "dashboard.today_menu": "Today's Menu",
+        "dashboard.no_menu": "No menu items are available for today.",
+        "dashboard.quantity": "Quantity",
+        "dashboard.place_order": "Place order",
+        "dashboard.my_orders": "My Orders",
+        "dashboard.no_orders": "You have no order for today.",
+        "dashboard.total": "Total",
+        "dashboard.company_billing": "Company Billing",
+        "dashboard.billing_placeholder": "Billing summaries and payment details will be available here.",
+        "order.updated": "Your order has been updated.",
+        "error.invalid_credentials": "Invalid credentials",
+        "error.invalid_role": "Invalid role selection.",
+        "error.email_registered": "Email already registered.",
+        "register.success": "Account created, you can sign in now.",
+    },
+    "pl": {
+        "nav.home": "Strona główna",
+        "nav.login": "Zaloguj się",
+        "nav.register": "Rejestracja",
+        "nav.app": "Panel",
+        "index.eyebrow": "Platforma zamawiania posiłków",
+        "index.lead": "Proste i mobilne zamawianie posiłków dla pracowników i firm.",
+        "index.login": "Zaloguj się",
+        "index.docs": "Dokumentacja API",
+        "login.title": "Logowanie",
+        "login.lead": "Użyj konta, aby przejść do panelu.",
+        "login.email": "E-mail",
+        "login.password": "Hasło",
+        "login.submit": "Zaloguj się",
+        "login.create_account": "Utwórz konto",
+        "back.home": "Wróć do strony głównej",
+        "register.title": "Utwórz konto",
+        "register.lead": "Utwórz nowe konto, aby korzystać z panelu zamówień.",
+        "register.role": "Rola",
+        "register.submit": "Utwórz konto",
+        "back.login": "Wróć do logowania",
+        "role.employee": "Pracownik",
+        "role.company": "Firma",
+        "role.catering": "Catering",
+        "role.admin": "Administrator",
+        "dashboard.title": "Panel",
+        "dashboard.lead": "Złóż dzisiejsze zamówienie i sprawdź bieżący wybór.",
+        "dashboard.today_menu": "Dzisiejsze menu",
+        "dashboard.no_menu": "Brak pozycji w menu na dziś.",
+        "dashboard.quantity": "Ilość",
+        "dashboard.place_order": "Złóż zamówienie",
+        "dashboard.my_orders": "Moje zamówienia",
+        "dashboard.no_orders": "Nie masz zamówienia na dziś.",
+        "dashboard.total": "Suma",
+        "dashboard.company_billing": "Rozliczenia firmy",
+        "dashboard.billing_placeholder": "Podsumowania rozliczeń i szczegóły płatności będą dostępne tutaj.",
+        "order.updated": "Twoje zamówienie zostało zaktualizowane.",
+        "error.invalid_credentials": "Nieprawidłowe dane logowania",
+        "error.invalid_role": "Nieprawidłowa rola.",
+        "error.email_registered": "E-mail jest już zarejestrowany.",
+        "register.success": "Konto utworzone, możesz się zalogować.",
+    },
+}
+
+
+def get_language(request: Request) -> str:
+    """Resolve language code from cookie, fallback to default language."""
+    lang: str = request.cookies.get("lang", DEFAULT_LANGUAGE)
+    if lang not in SUPPORTED_LANGUAGES:
+        return DEFAULT_LANGUAGE
+    return lang
+
+
+def t(key: str, lang: str) -> str:
+    """Translate key for a specific language with safe fallback."""
+    normalized_lang: str = lang if lang in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+    return TRANSLATIONS.get(normalized_lang, {}).get(key, key)
