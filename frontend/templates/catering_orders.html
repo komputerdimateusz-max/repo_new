@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('catering_orders.title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('catering_orders.title', lang) }}</h1>
+  <p class="lead">{{ t('catering_orders.page_lead', lang) }}</p>
+</header>
+
+<section class="card stack-md" aria-label="Catering orders">
+  <form method="get" action="/catering/orders" class="stack-md">
+    <label class="field">
+      <span>{{ t('orders.selected_date', lang) }}</span>
+      <input type="date" name="date" value="{{ selected_date.isoformat() }}" required />
+    </label>
+    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
+  </form>
+
+  {% if orders %}
+  <table class="orders-table">
+    <thead>
+      <tr>
+        <th>{{ t('catering_orders.table.order_id', lang) }}</th>
+        <th>{{ t('catering_orders.table.user_email', lang) }}</th>
+        <th>{{ t('catering_orders.table.items_count', lang) }}</th>
+        <th>{{ t('catering_orders.table.total', lang) }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td>{{ order.order_id }}</td>
+        <td>{{ order.user_email }}</td>
+        <td>{{ order.items_count }}</td>
+        <td>{{ '%.2f'|format(order.total_cents / 100) }} PLN</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>{{ t('catering_orders.empty', lang) }}</p>
+  {% endif %}
+</section>
+
+<p class="top-gap-sm"><a class="text-link" href="/app">{{ t('nav.app', lang) }}</a></p>
+{% endblock %}

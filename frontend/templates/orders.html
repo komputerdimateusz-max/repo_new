@@ -8,6 +8,10 @@
   <p class="lead">{{ t('orders.page_lead', lang) }}</p>
 </header>
 
+{% if message %}
+<p class="alert alert-success" role="status">{{ message }}</p>
+{% endif %}
+
 <section class="card stack-md" aria-label="My orders">
   <p><strong>{{ t('orders.selected_date', lang) }}:</strong> {{ selected_date.isoformat() }}</p>
   {% if order_items %}

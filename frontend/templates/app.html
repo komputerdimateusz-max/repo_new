@@ -13,9 +13,16 @@
 {% endif %}
 
 <section class="stack-md" aria-label="Dashboard sections">
-  <a href="/menu" class="card-link" aria-label="{{ t('dashboard.today_menu', lang) }}">
+  <a href="/order" class="card-link" aria-label="{{ t('dashboard.place_order_tile', lang) }}">
+    <div class="card card-primary">
+      <h3>{{ t('dashboard.place_order_tile', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.place_order_tile_description', lang) }}</p>
+    </div>
+  </a>
+
+  <a href="/menu" class="card-link" aria-label="{{ t('dashboard.view_menu', lang) }}">
     <div class="card">
-      <h3>{{ t('dashboard.today_menu', lang) }}</h3>
+      <h3>{{ t('dashboard.view_menu', lang) }}</h3>
       <p class="lead">{{ t('dashboard.card_menu_description', lang) }}</p>
     </div>
   </a>
@@ -26,14 +33,27 @@
       <p class="lead">{{ t('dashboard.card_orders_description', lang) }}</p>
     </div>
   </a>
+</section>
 
-  <a href="/billing" class="card-link" aria-label="{{ t('dashboard.company_billing', lang) }}">
+{% if current_user and current_user.role in ['admin', 'catering'] %}
+<section class="stack-md top-gap-sm" aria-label="Admin tools section">
+  <h2>{{ t('dashboard.admin_tools', lang) }}</h2>
+
+  <a href="/catering/menu?date={{ today_iso }}" class="card-link" aria-label="{{ t('dashboard.add_today_menu', lang) }}">
     <div class="card">
-      <h3>{{ t('dashboard.company_billing', lang) }}</h3>
-      <p class="lead">{{ t('dashboard.billing_placeholder', lang) }}</p>
+      <h3>{{ t('dashboard.add_today_menu', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.add_today_menu_description', lang) }}</p>
+    </div>
+  </a>
+
+  <a href="/catering/orders" class="card-link" aria-label="{{ t('dashboard.catering_orders', lang) }}">
+    <div class="card">
+      <h3>{{ t('dashboard.catering_orders', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.catering_orders_description', lang) }}</p>
     </div>
   </a>
 </section>
+{% endif %}
 
 <p class="top-gap-sm"><a class="text-link" href="/">{{ t('back.home', lang) }}</a></p>
 {% endblock %}
