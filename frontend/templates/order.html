@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('order.page_title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('order.page_title', lang) }}</h1>
+  <p class="lead">{{ t('order.page_lead', lang) }}</p>
+</header>
+
+<section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
+  {% if menu_items %}
+  <form method="post" action="/app/order" class="stack-md">
+    {% for item in menu_items %}
+    <div>
+      <strong>{{ item.name }}</strong>
+      {% if item.description %}
+      <p>{{ item.description }}</p>
+      {% endif %}
+      <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+      <label class="field">
+        <span>{{ t('dashboard.quantity', lang) }}</span>
+        <input type="number" min="0" name="qty_{{ item.id }}" value="0" />
+      </label>
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">{{ t('dashboard.place_order', lang) }}</button>
+  </form>
+  {% else %}
+  <p>{{ t('dashboard.no_menu', lang) }}</p>
+  {% endif %}
+</section>
+
+<p class="top-gap-sm"><a class="text-link" href="/app">{{ t('nav.app', lang) }}</a></p>
+{% endblock %}

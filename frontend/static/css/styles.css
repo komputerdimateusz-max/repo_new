@@ -82,6 +82,11 @@ h2 {
   border: 1px solid #e5e7eb;
 }
 
+.card-primary {
+  border-color: #93c5fd;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
 .card-link {
   text-decoration: none;
   color: inherit;
@@ -109,6 +114,10 @@ h2 {
 .card h3 {
   margin-top: 0;
   margin-bottom: 0.5rem;
+}
+
+.section-heading {
+  margin-bottom: 0;
 }
 
 .field {
@@ -262,4 +271,20 @@ select {
 .badge-inactive {
   color: #7f1d1d;
   background: #fee2e2;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.simple-table th,
+.simple-table td {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-1);
 }

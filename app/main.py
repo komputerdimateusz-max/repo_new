@@ -56,6 +56,48 @@ def _require_menu_manager_user(request: Request, db: Session) -> User | Redirect
     return user
 
 
+def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str, object]]:
+    """Build compact order summary rows with user email and PLN totals."""
+    rows: list[dict[str, object]] = []
+    if not orders:
+        return rows
+
+    user_ids: set[int] = {order.user_id for order in orders}
+    users_by_id: dict[int, User] = {
+        user.id: user for user in db.query(User).filter(User.id.in_(user_ids)).all()
+    }
+    menu_item_ids: set[int] = {
+        item.menu_item_id
+        for order in orders
+        for item in order.items
+    }
+    menu_by_id: dict[int, MenuItem] = {
+        item.id: item for item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all()
+    }
+
+    for order in orders:
+        total_items: int = 0
+        total_cents: int = 0
+        for item in order.items:
+            menu_item = menu_by_id.get(item.menu_item_id)
+            if menu_item is None:
+                continue
+            total_items += item.quantity
+            total_cents += menu_item.price_cents * item.quantity
+
+        user: User | None = users_by_id.get(order.user_id)
+        rows.append(
+            {
+                "order_id": order.id,
+                "user_email": user.email if user is not None else "-",
+                "total_items": total_items,
+                "total_cents": total_cents,
+            }
+        )
+
+    return rows
+
+
 def _parse_menu_price_to_cents(price_raw: str) -> int:
     """Convert PLN decimal string to integer cents."""
     normalized_price: str = price_raw.strip().replace(",", ".")
@@ -263,6 +305,7 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 message=message,
+                today=today,
                 current_user=user,
             ),
         )
@@ -296,7 +339,7 @@ def menu_page(request: Request) -> HTMLResponse:
 
 
 @app.get("/orders", include_in_schema=False, response_class=HTMLResponse)
-def orders_page(request: Request) -> HTMLResponse:
+def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
     """Render current user's orders for selected date (today by default)."""
     selected_date_str: str = request.query_params.get("date", date.today().isoformat())
     try:
@@ -346,8 +389,33 @@ def orders_page(request: Request) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 selected_date=selected_date,
+                message=message,
                 current_user=user,
             ),
+        )
+    finally:
+        db.close()
+
+
+@app.get("/order", include_in_schema=False, response_class=HTMLResponse)
+def order_page(request: Request) -> HTMLResponse:
+    """Render focused order submission page for today's active menu."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+        today: date = date.today()
+        menu_items: list[MenuItem] = (
+            db.query(MenuItem)
+            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
+            .order_by(MenuItem.id.asc())
+            .all()
+        )
+        return templates.TemplateResponse(
+            "order.html",
+            _template_context(request, menu_items=menu_items, current_user=user),
         )
     finally:
         db.close()
@@ -411,7 +479,7 @@ async def submit_order(request: Request) -> RedirectResponse:
         db.close()
 
     message = t("order.updated", get_language(request)).replace(" ", "+")
-    return RedirectResponse(url=f"/app?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/orders?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/catering/menu", include_in_schema=False, response_class=HTMLResponse)
@@ -543,6 +611,41 @@ def catering_menu_toggle(request: Request, menu_item_id: int) -> RedirectRespons
         url=f"/catering/menu?date={selected_date_str}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@app.get("/catering/orders", include_in_schema=False, response_class=HTMLResponse)
+def catering_orders_page(request: Request) -> Response:
+    """Render daily order list for catering/admin users."""
+    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    try:
+        selected_date: date = date.fromisoformat(selected_date_str)
+    except ValueError:
+        selected_date = date.today()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        orders: list[Order] = (
+            db.query(Order)
+            .filter(Order.order_date == selected_date)
+            .order_by(Order.id.asc())
+            .all()
+        )
+        order_rows: list[dict[str, object]] = _build_order_summary_rows(db=db, orders=orders)
+        return templates.TemplateResponse(
+            "catering_orders.html",
+            _template_context(
+                request,
+                selected_date=selected_date,
+                order_rows=order_rows,
+                current_user=user_or_response,
+            ),
+        )
+    finally:
+        db.close()
 
 
 @app.get("/health", tags=["health"])
