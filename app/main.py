@@ -1,11 +1,12 @@
 """FastAPI application entrypoint."""
 
 from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from app.db import session as db_session
 from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
 from app.models import MenuItem, Order, OrderItem, User
+from app.services.menu_service import create_menu_item, list_menu_items_for_date, toggle_menu_item_active
 from app.services.user_service import create_user, get_user_by_email, get_user_by_id
 
 app: FastAPI = FastAPI(title=settings.app_name)
@@ -33,6 +35,35 @@ templates.env.globals["t"] = t
 app.mount("/static", StaticFiles(directory=str(base_dir / "frontend" / "static")), name="static")
 
 ALLOWED_ROLES: set[str] = {"employee", "company", "catering", "admin"}
+
+
+MENU_MANAGER_ROLES: set[str] = {"catering", "admin"}
+
+
+def _forbidden_catering_access(request: Request) -> RedirectResponse:
+    """Redirect non-catering users back to dashboard with localized error."""
+    message: str = t("menu.error.forbidden", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/app?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _require_menu_manager_user(request: Request, db: Session) -> User | RedirectResponse:
+    """Return authenticated catering/admin user or redirect response."""
+    user: User | None = _current_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in MENU_MANAGER_ROLES:
+        return _forbidden_catering_access(request)
+    return user
+
+
+def _parse_menu_price_to_cents(price_raw: str) -> int:
+    """Convert PLN decimal string to integer cents."""
+    normalized_price: str = price_raw.strip().replace(",", ".")
+    decimal_value = Decimal(normalized_price)
+    if decimal_value <= 0:
+        raise ValueError("Price must be greater than zero")
+    cents: Decimal = (decimal_value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return int(cents)
 
 
 @app.on_event("startup")
@@ -232,6 +263,7 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 message=message,
+                current_user=user,
             ),
         )
     finally:
@@ -280,6 +312,137 @@ async def submit_order(request: Request) -> RedirectResponse:
 
     message = t("order.updated", get_language(request)).replace(" ", "+")
     return RedirectResponse(url=f"/app?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/catering/menu", include_in_schema=False, response_class=HTMLResponse)
+def catering_menu_page(request: Request, message: str | None = None) -> HTMLResponse:
+    """Render catering/admin menu management page."""
+    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    try:
+        selected_date: date = date.fromisoformat(selected_date_str)
+    except ValueError:
+        selected_date = date.today()
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        menu_items: list[MenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        return templates.TemplateResponse(
+            "catering_menu.html",
+            _template_context(
+                request,
+                selected_date=selected_date,
+                menu_items=menu_items,
+                message=message,
+                error=None,
+                current_user=user_or_response,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/catering/menu", include_in_schema=False)
+async def catering_menu_create(request: Request) -> Response:
+    """Create menu item from catering/admin HTML form."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    selected_date_str: str = form_data.get("menu_date", [date.today().isoformat()])[0]
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        try:
+            selected_date = date.fromisoformat(selected_date_str)
+        except ValueError:
+            selected_date = date.today()
+            selected_date_str = selected_date.isoformat()
+        name: str = form_data.get("name", [""])[0].strip()
+        description_raw: str = form_data.get("description", [""])[0].strip()
+        price_raw: str = form_data.get("price", [""])[0]
+        is_active: bool = form_data.get("is_active", [""])[0] == "on"
+
+        if not name:
+            error_message = t("menu.error.name_required", get_language(request))
+            menu_items = list_menu_items_for_date(db=db, menu_date=selected_date)
+            return templates.TemplateResponse(
+                "catering_menu.html",
+                _template_context(
+                    request,
+                    selected_date=selected_date,
+                    menu_items=menu_items,
+                    message=None,
+                    error=error_message,
+                    current_user=user_or_response,
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            price_cents: int = _parse_menu_price_to_cents(price_raw)
+        except (InvalidOperation, ValueError):
+            error_message = t("menu.error.invalid_price", get_language(request))
+            menu_items = list_menu_items_for_date(db=db, menu_date=selected_date)
+            return templates.TemplateResponse(
+                "catering_menu.html",
+                _template_context(
+                    request,
+                    selected_date=selected_date,
+                    menu_items=menu_items,
+                    message=None,
+                    error=error_message,
+                    current_user=user_or_response,
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        create_menu_item(
+            db=db,
+            menu_date=selected_date,
+            name=name,
+            description=description_raw or None,
+            price_cents=price_cents,
+            is_active=is_active,
+        )
+    finally:
+        db.close()
+
+    success_message: str = t("menu.success.created", get_language(request)).replace(" ", "+")
+    return RedirectResponse(
+        url=f"/catering/menu?date={selected_date_str}&message={success_message}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/catering/menu/{menu_item_id}/toggle", include_in_schema=False)
+def catering_menu_toggle(request: Request, menu_item_id: int) -> RedirectResponse:
+    """Toggle active state for selected menu item."""
+    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    try:
+        selected_date: date = date.fromisoformat(selected_date_str)
+    except ValueError:
+        selected_date = date.today()
+    selected_date_str: str = selected_date.isoformat()
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        menu_item: MenuItem | None = db.query(MenuItem).filter(MenuItem.id == menu_item_id).first()
+        if menu_item is not None:
+            toggle_menu_item_active(db=db, menu_item=menu_item)
+    finally:
+        db.close()
+
+    return RedirectResponse(
+        url=f"/catering/menu?date={selected_date_str}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get("/health", tags=["health"])

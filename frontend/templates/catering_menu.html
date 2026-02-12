@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('menu.title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('menu.title', lang) }}</h1>
+  <p class="lead">{{ t('menu.subtitle', lang) }}</p>
+</header>
+
+{% if message %}
+<p class="alert alert-success top-gap-sm" role="status">{{ message }}</p>
+{% endif %}
+{% if error %}
+<p class="alert alert-error top-gap-sm" role="alert">{{ error }}</p>
+{% endif %}
+
+<section class="card stack-md top-gap-sm">
+  <h2>{{ t('menu.select_date', lang) }}</h2>
+  <form method="get" action="/catering/menu" class="stack-md">
+    <label class="field">
+      <span>{{ t('menu.date', lang) }}</span>
+      <input type="date" name="date" value="{{ selected_date.isoformat() }}" />
+    </label>
+    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
+  </form>
+</section>
+
+<section class="card stack-md top-gap-sm">
+  <h2>{{ t('menu.add_item', lang) }}</h2>
+  <form method="post" action="/catering/menu" class="stack-md">
+    <input type="hidden" name="menu_date" value="{{ selected_date.isoformat() }}" />
+    <label class="field">
+      <span>{{ t('menu.name', lang) }}</span>
+      <input type="text" name="name" required />
+    </label>
+    <label class="field">
+      <span>{{ t('menu.description', lang) }}</span>
+      <input type="text" name="description" />
+    </label>
+    <label class="field">
+      <span>{{ t('menu.price', lang) }}</span>
+      <input type="number" step="0.01" min="0.01" name="price" placeholder="12.50" required />
+    </label>
+    <label class="checkbox-field">
+      <input type="checkbox" name="is_active" checked />
+      <span>{{ t('menu.active', lang) }}</span>
+    </label>
+    <button type="submit" class="btn btn-primary">{{ t('menu.add_button', lang) }}</button>
+  </form>
+</section>
+
+<section class="card stack-md top-gap-sm">
+  <h2>{{ t('menu.items_for_day', lang) }}</h2>
+  {% if menu_items %}
+    <ul class="menu-list">
+      {% for item in menu_items %}
+      <li class="menu-list-item">
+        <div class="stack-md">
+          <div>
+            <strong>{{ item.name }}</strong>
+            {% if item.description %}
+            <p>{{ item.description }}</p>
+            {% endif %}
+            <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+          </div>
+          <div class="menu-actions">
+            <span class="badge {% if item.is_active %}badge-active{% else %}badge-inactive{% endif %}">
+              {% if item.is_active %}
+              {{ t('menu.status_active', lang) }}
+              {% else %}
+              {{ t('menu.status_inactive', lang) }}
+              {% endif %}
+            </span>
+            <form method="post" action="/catering/menu/{{ item.id }}/toggle?date={{ selected_date.isoformat() }}">
+              <button type="submit" class="btn btn-secondary btn-inline">
+                {% if item.is_active %}
+                {{ t('menu.disable', lang) }}
+                {% else %}
+                {{ t('menu.enable', lang) }}
+                {% endif %}
+              </button>
+            </form>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+  <p>{{ t('menu.empty', lang) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

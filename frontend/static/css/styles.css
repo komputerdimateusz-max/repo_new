@@ -153,3 +153,57 @@ select {
 .top-gap-sm {
   margin-top: var(--space-3);
 }
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.checkbox-field input {
+  width: auto;
+  margin: 0;
+}
+
+.btn-inline {
+  width: auto;
+  min-height: auto;
+  padding: var(--space-1) var(--space-3);
+}
+
+.menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.menu-list-item + .menu-list-item {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.menu-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.badge {
+  display: inline-flex;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.badge-active {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.badge-inactive {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
