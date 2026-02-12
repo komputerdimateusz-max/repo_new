@@ -1,6 +1,6 @@
 """FastAPI application entrypoint."""
 
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.api.v1.api import api_router
@@ -23,7 +24,7 @@ from app.db.base import Base
 from app.db import session as db_session
 from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
-from app.models import MenuItem, Order, OrderItem, User
+from app.models import Location, MenuItem, Order, OrderItem, User
 from app.services.menu_service import create_menu_item, list_menu_items_for_date, toggle_menu_item_active
 from app.services.user_service import (
     count_admin_users,
@@ -121,6 +122,54 @@ def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str
     return rows
 
 
+def _parse_location_time(time_raw: str) -> time | None:
+    """Parse HH:MM value from HTML input."""
+    normalized: str = time_raw.strip()
+    if not normalized:
+        return None
+    return datetime.strptime(normalized, "%H:%M").time()
+
+
+def _build_location_group_summary(db: Session, orders: list[Order]) -> list[dict[str, object]]:
+    """Aggregate order totals grouped by location."""
+    if not orders:
+        return []
+
+    menu_item_ids: set[int] = {
+        item.menu_item_id
+        for order in orders
+        for item in order.items
+    }
+    menu_by_id: dict[int, MenuItem] = {
+        item.id: item for item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all()
+    }
+
+    grouped: dict[int, dict[str, object]] = {}
+    for order in orders:
+        if order.location is None:
+            continue
+        bucket = grouped.get(order.location_id)
+        if bucket is None:
+            bucket = {
+                "company_name": order.location.company_name,
+                "address": order.location.address,
+                "orders_count": 0,
+                "total_items": 0,
+                "total_cents": 0,
+            }
+            grouped[order.location_id] = bucket
+
+        bucket["orders_count"] += 1
+        for item in order.items:
+            menu_item = menu_by_id.get(item.menu_item_id)
+            if menu_item is None:
+                continue
+            bucket["total_items"] += item.quantity
+            bucket["total_cents"] += menu_item.price_cents * item.quantity
+
+    return list(grouped.values())
+
+
 def _parse_menu_price_to_cents(price_raw: str) -> int:
     """Convert PLN decimal string to integer cents."""
     normalized_price: str = price_raw.strip().replace(",", ".")
@@ -131,10 +180,77 @@ def _parse_menu_price_to_cents(price_raw: str) -> int:
     return int(cents)
 
 
+def _ensure_location_schema_compatibility() -> None:
+    """Apply lightweight schema updates for legacy SQLite databases."""
+    with db_session.engine.begin() as connection:
+        inspector = inspect(connection)
+        table_names: set[str] = set(inspector.get_table_names())
+
+        if "locations" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE locations (
+                        id INTEGER PRIMARY KEY,
+                        company_name VARCHAR(255) NOT NULL,
+                        address VARCHAR(255) NOT NULL,
+                        delivery_time_start TIME NULL,
+                        delivery_time_end TIME NULL,
+                        is_active BOOLEAN NOT NULL DEFAULT 1,
+                        created_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+
+        location_columns: set[str] = {column["name"] for column in inspector.get_columns("locations")}
+        if "created_at" not in location_columns:
+            now_iso: str = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+            connection.execute(
+                text(
+                    "ALTER TABLE locations ADD COLUMN created_at DATETIME NOT NULL "
+                    f"DEFAULT '{now_iso}'"
+                )
+            )
+
+        orders_columns: set[str] = {column["name"] for column in inspector.get_columns("orders")}
+        if "location_id" not in orders_columns:
+            default_location = connection.execute(
+                text("SELECT id FROM locations ORDER BY id ASC LIMIT 1")
+            ).scalar_one_or_none()
+            if default_location is None:
+                now_iso = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO locations (company_name, address, is_active, created_at)
+                        VALUES (:company_name, :address, :is_active, :created_at)
+                        """
+                    ),
+                    {
+                        "company_name": "Legacy Location",
+                        "address": "Unknown Address",
+                        "is_active": True,
+                        "created_at": now_iso,
+                    },
+                )
+                default_location = connection.execute(
+                    text("SELECT id FROM locations ORDER BY id ASC LIMIT 1")
+                ).scalar_one()
+
+            connection.execute(
+                text(
+                    "ALTER TABLE orders ADD COLUMN location_id INTEGER "
+                    f"NOT NULL DEFAULT {int(default_location)}"
+                )
+            )
+
+
 @app.on_event("startup")
 def initialize_database_on_startup() -> None:
     """Initialize database schema and development seed data."""
     Base.metadata.create_all(bind=db_session.engine)
+    _ensure_location_schema_compatibility()
 
     db = db_session.SessionLocal()
     try:
@@ -421,7 +537,7 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
 
 
 @app.get("/order", include_in_schema=False, response_class=HTMLResponse)
-def order_page(request: Request) -> HTMLResponse:
+def order_page(request: Request, error: str | None = None) -> HTMLResponse:
     """Render focused order submission page for today's active menu."""
     db: Session = db_session.SessionLocal()
     try:
@@ -436,9 +552,21 @@ def order_page(request: Request) -> HTMLResponse:
             .order_by(MenuItem.id.asc())
             .all()
         )
+        locations: list[Location] = (
+            db.query(Location)
+            .filter(Location.is_active.is_(True))
+            .order_by(Location.company_name.asc(), Location.address.asc())
+            .all()
+        )
         return templates.TemplateResponse(
             "order.html",
-            _template_context(request, menu_items=menu_items, current_user=user),
+            _template_context(
+                request,
+                menu_items=menu_items,
+                locations=locations,
+                error=error,
+                current_user=user,
+            ),
         )
     finally:
         db.close()
@@ -513,6 +641,92 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
     return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.get("/admin/locations", include_in_schema=False, response_class=HTMLResponse)
+def admin_locations_page(request: Request, message: str | None = None) -> Response:
+    """Render locations management page for admin users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        locations: list[Location] = db.query(Location).order_by(Location.id.asc()).all()
+        return templates.TemplateResponse(
+            "admin_locations.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                message=message,
+                locations=locations,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/locations", include_in_schema=False)
+async def admin_locations_create(request: Request) -> Response:
+    """Create location from admin form submission."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    company_name: str = form_data.get("company_name", [""])[0].strip()
+    address: str = form_data.get("address", [""])[0].strip()
+    delivery_time_start_raw: str = form_data.get("delivery_time_start", [""])[0]
+    delivery_time_end_raw: str = form_data.get("delivery_time_end", [""])[0]
+    is_active: bool = form_data.get("is_active", [""])[0] == "on"
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        if not company_name or not address:
+            message = t("locations.error.required_fields", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        try:
+            delivery_time_start = _parse_location_time(delivery_time_start_raw)
+            delivery_time_end = _parse_location_time(delivery_time_end_raw)
+        except ValueError:
+            message = t("locations.error.invalid_time", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        location = Location(
+            company_name=company_name,
+            address=address,
+            delivery_time_start=delivery_time_start,
+            delivery_time_end=delivery_time_end,
+            is_active=is_active,
+        )
+        db.add(location)
+        db.commit()
+    finally:
+        db.close()
+
+    message = t("locations.success.created", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/locations/{location_id}/toggle", include_in_schema=False)
+def admin_locations_toggle(request: Request, location_id: int) -> RedirectResponse:
+    """Toggle active state of selected location."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        location: Location | None = db.query(Location).filter(Location.id == location_id).first()
+        if location is not None:
+            location.is_active = not location.is_active
+            db.add(location)
+            db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse(url="/admin/locations", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.post("/dev/promote-admin", include_in_schema=False)
 async def dev_promote_admin(request: Request) -> Response:
     """Promote a user to admin in development environment only."""
@@ -552,6 +766,25 @@ async def submit_order(request: Request) -> RedirectResponse:
 
         form_data = parse_qs((await request.body()).decode("utf-8"))
         today: date = date.today()
+        location_id_raw: str = form_data.get("location_id", [""])[0].strip()
+        if not location_id_raw:
+            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        try:
+            location_id: int = int(location_id_raw)
+        except ValueError:
+            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        location: Location | None = (
+            db.query(Location)
+            .filter(Location.id == location_id, Location.is_active.is_(True))
+            .first()
+        )
+        if location is None:
+            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         order: Order | None = (
             db.query(Order)
@@ -559,9 +792,11 @@ async def submit_order(request: Request) -> RedirectResponse:
             .first()
         )
         if order is None:
-            order = Order(user_id=user.id, order_date=today, status="created")
+            order = Order(user_id=user.id, location_id=location.id, order_date=today, status="created")
             db.add(order)
             db.flush()
+        else:
+            order.location_id = location.id
 
         db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 
@@ -723,12 +958,14 @@ def catering_orders_page(request: Request) -> Response:
             .all()
         )
         order_rows: list[dict[str, object]] = _build_order_summary_rows(db=db, orders=orders)
+        location_summaries: list[dict[str, object]] = _build_location_group_summary(db=db, orders=orders)
         return templates.TemplateResponse(
             "catering_orders.html",
             _template_context(
                 request,
                 selected_date=selected_date,
                 order_rows=order_rows,
+                location_summaries=location_summaries,
                 current_user=user_or_response,
             ),
         )

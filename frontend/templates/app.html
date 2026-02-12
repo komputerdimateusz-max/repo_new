@@ -45,6 +45,14 @@
       <p class="lead">{{ t('dashboard.add_today_menu_description', lang) }}</p>
     </div>
   </a>
+  {% if current_user.role == 'admin' %}
+  <a href="/admin/locations" class="card-link" aria-label="{{ t('dashboard.supported_locations', lang) }}">
+    <div class="card">
+      <h3>{{ t('dashboard.supported_locations', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.supported_locations_description', lang) }}</p>
+    </div>
+  </a>
+  {% endif %}
 
   <a href="/catering/orders" class="card-link" aria-label="{{ t('dashboard.catering_orders', lang) }}">
     <div class="card">

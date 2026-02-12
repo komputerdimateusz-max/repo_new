@@ -1,11 +1,15 @@
 """Order ORM models."""
 
 from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.location import Location
 
 
 class Order(Base):
@@ -15,6 +19,7 @@ class Order(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), nullable=False)
     order_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
     created_at: Mapped[datetime] = mapped_column(
@@ -22,6 +27,8 @@ class Order(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+    location: Mapped["Location"] = relationship(back_populates="orders")
 
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order",
