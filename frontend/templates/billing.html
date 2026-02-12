@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('dashboard.company_billing', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('dashboard.company_billing', lang) }}</h1>
+  <p class="lead">{{ t('billing.page_lead', lang) }}</p>
+</header>
+
+<section class="card stack-md" aria-label="Company billing">
+  <p>{{ t('dashboard.billing_placeholder', lang) }}</p>
+  <p><a class="text-link" href="/app">{{ t('nav.app', lang) }}</a></p>
+</section>
+{% endblock %}

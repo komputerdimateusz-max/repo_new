@@ -270,6 +270,106 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
         db.close()
 
 
+@app.get("/menu", include_in_schema=False, response_class=HTMLResponse)
+def menu_page(request: Request) -> HTMLResponse:
+    """Render today's menu and order form for authenticated users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+        today: date = date.today()
+        menu_items: list[MenuItem] = (
+            db.query(MenuItem)
+            .filter(MenuItem.menu_date == today, MenuItem.is_active.is_(True))
+            .order_by(MenuItem.id.asc())
+            .all()
+        )
+
+        return templates.TemplateResponse(
+            "menu.html",
+            _template_context(request, menu_items=menu_items, current_user=user),
+        )
+    finally:
+        db.close()
+
+
+@app.get("/orders", include_in_schema=False, response_class=HTMLResponse)
+def orders_page(request: Request) -> HTMLResponse:
+    """Render current user's orders for selected date (today by default)."""
+    selected_date_str: str = request.query_params.get("date", date.today().isoformat())
+    try:
+        selected_date: date = date.fromisoformat(selected_date_str)
+    except ValueError:
+        selected_date = date.today()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+        order: Order | None = (
+            db.query(Order)
+            .filter(Order.user_id == user.id, Order.order_date == selected_date)
+            .first()
+        )
+        order_items: list[dict[str, object]] = []
+        total_cents: int = 0
+
+        if order is not None:
+            menu_item_ids = [item.menu_item_id for item in order.items]
+            menu_by_id: dict[int, MenuItem] = {}
+            if menu_item_ids:
+                for menu_item in db.query(MenuItem).filter(MenuItem.id.in_(menu_item_ids)).all():
+                    menu_by_id[menu_item.id] = menu_item
+
+            for item in order.items:
+                menu_item = menu_by_id.get(item.menu_item_id)
+                if menu_item is None:
+                    continue
+                line_total: int = menu_item.price_cents * item.quantity
+                total_cents += line_total
+                order_items.append(
+                    {
+                        "name": menu_item.name,
+                        "quantity": item.quantity,
+                        "line_total_cents": line_total,
+                    }
+                )
+
+        return templates.TemplateResponse(
+            "orders.html",
+            _template_context(
+                request,
+                order_items=order_items,
+                total_cents=total_cents,
+                selected_date=selected_date,
+                current_user=user,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.get("/billing", include_in_schema=False, response_class=HTMLResponse)
+def billing_page(request: Request) -> HTMLResponse:
+    """Render placeholder billing page for authenticated users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+        return templates.TemplateResponse(
+            "billing.html",
+            _template_context(request, current_user=user),
+        )
+    finally:
+        db.close()
+
+
 @app.post("/app/order", include_in_schema=False)
 async def submit_order(request: Request) -> RedirectResponse:
     """Submit order form from dashboard UI."""

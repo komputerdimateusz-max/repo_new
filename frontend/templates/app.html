@@ -13,48 +13,20 @@
 {% endif %}
 
 <section class="stack-md" aria-label="Dashboard sections">
-  <article class="card">
+  <a href="/menu" class="card card-link" aria-label="{{ t('dashboard.today_menu', lang) }}">
     <h2>{{ t('dashboard.today_menu', lang) }}</h2>
-    {% if menu_items %}
-    <form method="post" action="/app/order" class="stack-md">
-      {% for item in menu_items %}
-      <div>
-        <strong>{{ item.name }}</strong>
-        {% if item.description %}
-        <p>{{ item.description }}</p>
-        {% endif %}
-        <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
-        <label class="field">
-          <span>{{ t('dashboard.quantity', lang) }}</span>
-          <input type="number" min="0" name="qty_{{ item.id }}" value="0" />
-        </label>
-      </div>
-      {% endfor %}
-      <button type="submit" class="btn btn-primary">{{ t('dashboard.place_order', lang) }}</button>
-    </form>
-    {% else %}
-    <p>{{ t('dashboard.no_menu', lang) }}</p>
-    {% endif %}
-  </article>
+    <p class="lead">{{ t('dashboard.card_menu_description', lang) }}</p>
+  </a>
 
-  <article class="card">
+  <a href="/orders" class="card card-link" aria-label="{{ t('dashboard.my_orders', lang) }}">
     <h2>{{ t('dashboard.my_orders', lang) }}</h2>
-    {% if order_items %}
-      <ul>
-      {% for item in order_items %}
-        <li>{{ item.name }} × {{ item.quantity }} — {{ '%.2f'|format(item.line_total_cents / 100) }} PLN</li>
-      {% endfor %}
-      </ul>
-      <p><strong>{{ t('dashboard.total', lang) }}: {{ '%.2f'|format(total_cents / 100) }} PLN</strong></p>
-    {% else %}
-      <p>{{ t('dashboard.no_orders', lang) }}</p>
-    {% endif %}
-  </article>
+    <p class="lead">{{ t('dashboard.card_orders_description', lang) }}</p>
+  </a>
 
-  <article class="card">
+  <a href="/billing" class="card card-link" aria-label="{{ t('dashboard.company_billing', lang) }}">
     <h2>{{ t('dashboard.company_billing', lang) }}</h2>
-    <p>{{ t('dashboard.billing_placeholder', lang) }}</p>
-  </article>
+    <p class="lead">{{ t('dashboard.billing_placeholder', lang) }}</p>
+  </a>
 </section>
 
 <p class="top-gap-sm"><a class="text-link" href="/">{{ t('back.home', lang) }}</a></p>

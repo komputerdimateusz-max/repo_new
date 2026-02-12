@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('dashboard.my_orders', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('dashboard.my_orders', lang) }}</h1>
+  <p class="lead">{{ t('orders.page_lead', lang) }}</p>
+</header>
+
+<section class="card stack-md" aria-label="My orders">
+  <p><strong>{{ t('orders.selected_date', lang) }}:</strong> {{ selected_date.isoformat() }}</p>
+  {% if order_items %}
+  <ul>
+    {% for item in order_items %}
+    <li>{{ item.name }} × {{ item.quantity }} — {{ '%.2f'|format(item.line_total_cents / 100) }} PLN</li>
+    {% endfor %}
+  </ul>
+  <p><strong>{{ t('dashboard.total', lang) }}: {{ '%.2f'|format(total_cents / 100) }} PLN</strong></p>
+  {% else %}
+  <p>{{ t('dashboard.no_orders', lang) }}</p>
+  {% endif %}
+</section>
+
+<p class="top-gap-sm"><a class="text-link" href="/app">{{ t('nav.app', lang) }}</a></p>
+{% endblock %}
