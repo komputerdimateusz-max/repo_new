@@ -20,6 +20,38 @@
 </section>
 
 <section class="card stack-md top-gap-sm">
+  <h2>{{ t('catering_orders.summary_title', lang) }}</h2>
+  {% if location_summaries %}
+  <div class="table-wrap">
+    <table class="simple-table">
+      <thead>
+        <tr>
+          <th>{{ t('locations.company_name', lang) }}</th>
+          <th>{{ t('locations.address', lang) }}</th>
+          <th>{{ t('catering_orders.summary_orders_count', lang) }}</th>
+          <th>{{ t('catering_orders.summary_items_count', lang) }}</th>
+          <th>{{ t('catering_orders.summary_total', lang) }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for summary in location_summaries %}
+        <tr>
+          <td>{{ summary.company_name }}</td>
+          <td>{{ summary.address }}</td>
+          <td>{{ summary.orders_count }}</td>
+          <td>{{ summary.total_items }}</td>
+          <td>{{ '%.2f'|format(summary.total_cents / 100) }} PLN</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>{{ t('catering_orders.empty', lang) }}</p>
+  {% endif %}
+</section>
+
+<section class="card stack-md top-gap-sm">
   <h2>{{ t('catering_orders.table_title', lang) }}</h2>
   {% if order_rows %}
   <div class="table-wrap">

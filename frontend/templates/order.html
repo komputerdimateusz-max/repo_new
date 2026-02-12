@@ -8,9 +8,23 @@
   <p class="lead">{{ t('order.page_lead', lang) }}</p>
 </header>
 
+{% if error %}
+<p class="alert alert-error" role="alert">{{ error }}</p>
+{% endif %}
+
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
   {% if menu_items %}
   <form method="post" action="/app/order" class="stack-md">
+    <label class="field">
+      <span>{{ t('order.select_location', lang) }}</span>
+      <select name="location_id" required>
+        <option value="">{{ t('order.select_location_placeholder', lang) }}</option>
+        {% for location in locations %}
+        <option value="{{ location.id }}">{{ location.company_name }} — {{ location.address }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
     {% for item in menu_items %}
     <div>
       <strong>{{ item.name }}</strong>

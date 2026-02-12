@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('locations.title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('locations.title', lang) }}</h1>
+  <p class="lead">{{ t('locations.lead', lang) }}</p>
+</header>
+
+{% if message %}
+<p class="alert alert-success" role="status">{{ message }}</p>
+{% endif %}
+
+<section class="card stack-md">
+  <h2>{{ t('locations.add_form_title', lang) }}</h2>
+  <form method="post" action="/admin/locations" class="stack-md">
+    <label class="field">
+      <span>{{ t('locations.company_name', lang) }}</span>
+      <input type="text" name="company_name" required />
+    </label>
+    <label class="field">
+      <span>{{ t('locations.address', lang) }}</span>
+      <input type="text" name="address" required />
+    </label>
+    <div class="stack-md">
+      <span>{{ t('locations.delivery_hours', lang) }}</span>
+      <label class="field">
+        <span>{{ t('locations.delivery_start', lang) }}</span>
+        <input type="time" name="delivery_time_start" />
+      </label>
+      <label class="field">
+        <span>{{ t('locations.delivery_end', lang) }}</span>
+        <input type="time" name="delivery_time_end" />
+      </label>
+    </div>
+    <label class="field field-inline">
+      <input type="checkbox" name="is_active" checked />
+      <span>{{ t('locations.active', lang) }}</span>
+    </label>
+    <button type="submit" class="btn btn-primary">{{ t('locations.add_button', lang) }}</button>
+  </form>
+</section>
+
+<section class="card stack-md top-gap-sm">
+  <h2>{{ t('locations.list_title', lang) }}</h2>
+  {% if locations %}
+  <div class="table-wrap">
+    <table class="simple-table">
+      <thead>
+        <tr>
+          <th>{{ t('locations.company_name', lang) }}</th>
+          <th>{{ t('locations.address', lang) }}</th>
+          <th>{{ t('locations.delivery_hours', lang) }}</th>
+          <th>{{ t('locations.status', lang) }}</th>
+          <th>{{ t('settings.column_action', lang) }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for location in locations %}
+        <tr>
+          <td>{{ location.company_name }}</td>
+          <td>{{ location.address }}</td>
+          <td>
+            {% if location.delivery_time_start and location.delivery_time_end %}
+            {{ location.delivery_time_start.strftime('%H:%M') }} - {{ location.delivery_time_end.strftime('%H:%M') }}
+            {% else %}
+            {{ t('locations.hours_not_set', lang) }}
+            {% endif %}
+          </td>
+          <td>
+            {% if location.is_active %}
+            <span class="badge badge-success">{{ t('menu.status_active', lang) }}</span>
+            {% else %}
+            <span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/admin/locations/{{ location.id }}/toggle">
+              {% if location.is_active %}
+              <button type="submit" class="btn btn-secondary">{{ t('menu.disable', lang) }}</button>
+              {% else %}
+              <button type="submit" class="btn btn-secondary">{{ t('menu.enable', lang) }}</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>{{ t('locations.empty', lang) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

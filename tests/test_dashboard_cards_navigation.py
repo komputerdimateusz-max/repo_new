@@ -50,6 +50,7 @@ def test_dashboard_cards_include_expected_links(tmp_path: Path, monkeypatch) -> 
     assert 'href="/menu"' in response.text
     assert 'href="/orders"' in response.text
     assert 'href="/catering/menu' not in response.text
+    assert 'href="/admin/locations"' not in response.text
     assert 'href="/catering/orders"' not in response.text
 
 
@@ -80,7 +81,8 @@ def test_dashboard_shows_admin_links_for_admin_role(tmp_path: Path, monkeypatch)
         response = client.get("/app")
 
     assert response.status_code == 200
-    assert 'href="/catering/menu?date=' in response.text
+    assert 'href="/catering/menu"' in response.text
+    assert 'href="/admin/locations"' in response.text
     assert 'href="/catering/orders"' in response.text
 
 
