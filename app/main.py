@@ -26,6 +26,7 @@ from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
 from app.models import Location, MenuItem, Order, OrderItem, User
 from app.services.menu_service import create_menu_item, list_menu_items_for_date, toggle_menu_item_active
+from app.services.order_service import CutoffPassedError, resolve_target_order_date
 from app.services.user_service import (
     count_admin_users,
     create_user,
@@ -46,6 +47,11 @@ ALLOWED_ROLES: set[str] = {"employee", "company", "catering", "admin"}
 
 
 MENU_MANAGER_ROLES: set[str] = {"catering", "admin"}
+
+
+def _current_local_datetime() -> datetime:
+    """Return current local datetime."""
+    return datetime.now()
 
 
 def _forbidden_catering_access(request: Request) -> RedirectResponse:
@@ -212,6 +218,9 @@ def _ensure_location_schema_compatibility() -> None:
                     f"DEFAULT '{now_iso}'"
                 )
             )
+
+        if "cutoff_time" not in location_columns:
+            connection.execute(text("ALTER TABLE locations ADD COLUMN cutoff_time TIME"))
 
         orders_columns: set[str] = {column["name"] for column in inspector.get_columns("orders")}
         if "location_id" not in orders_columns:
@@ -492,10 +501,18 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
+        tomorrow_date: date = date.fromordinal(date.today().toordinal() + 1)
+
         order: Order | None = (
             db.query(Order)
             .filter(Order.user_id == user.id, Order.order_date == selected_date)
             .first()
+        )
+        tomorrow_order_exists: bool = (
+            db.query(Order.id)
+            .filter(Order.user_id == user.id, Order.order_date == tomorrow_date)
+            .first()
+            is not None
         )
         order_items: list[dict[str, object]] = []
         total_cents: int = 0
@@ -528,6 +545,8 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
                 order_items=order_items,
                 total_cents=total_cents,
                 selected_date=selected_date,
+                tomorrow_date=tomorrow_date,
+                tomorrow_order_exists=tomorrow_order_exists,
                 message=message,
                 current_user=user,
             ),
@@ -539,6 +558,34 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
 @app.get("/order", include_in_schema=False, response_class=HTMLResponse)
 def order_page(request: Request, error: str | None = None) -> HTMLResponse:
     """Render focused order submission page for today's active menu."""
+    return _render_order_page(request=request, error=error)
+
+
+def _parse_quantities(form_data: dict[str, list[str]]) -> dict[int, int]:
+    """Extract menu item quantities from form data."""
+    quantities: dict[int, int] = {}
+    for key, values in form_data.items():
+        if not key.startswith("qty_"):
+            continue
+        try:
+            menu_item_id = int(key.replace("qty_", ""))
+            quantity = int(values[0] if values else "0")
+        except ValueError:
+            continue
+        if quantity >= 0:
+            quantities[menu_item_id] = quantity
+    return quantities
+
+
+def _render_order_page(
+    *,
+    request: Request,
+    error: str | None,
+    cutoff_prompt: bool = False,
+    selected_location_id: int | None = None,
+    quantities: dict[int, int] | None = None,
+) -> HTMLResponse:
+    """Render order page with optional cut-off prompt state."""
     db: Session = db_session.SessionLocal()
     try:
         user: User | None = _current_user_from_cookie(request, db)
@@ -565,6 +612,9 @@ def order_page(request: Request, error: str | None = None) -> HTMLResponse:
                 menu_items=menu_items,
                 locations=locations,
                 error=error,
+                cutoff_prompt=cutoff_prompt,
+                selected_location_id=selected_location_id,
+                quantities=quantities or {},
                 current_user=user,
             ),
         )
@@ -672,6 +722,7 @@ async def admin_locations_create(request: Request) -> Response:
     address: str = form_data.get("address", [""])[0].strip()
     delivery_time_start_raw: str = form_data.get("delivery_time_start", [""])[0]
     delivery_time_end_raw: str = form_data.get("delivery_time_end", [""])[0]
+    cutoff_time_raw: str = form_data.get("cutoff_time", [""])[0]
     is_active: bool = form_data.get("is_active", [""])[0] == "on"
 
     db: Session = db_session.SessionLocal()
@@ -687,6 +738,7 @@ async def admin_locations_create(request: Request) -> Response:
         try:
             delivery_time_start = _parse_location_time(delivery_time_start_raw)
             delivery_time_end = _parse_location_time(delivery_time_end_raw)
+            cutoff_time = _parse_location_time(cutoff_time_raw)
         except ValueError:
             message = t("locations.error.invalid_time", get_language(request)).replace(" ", "+")
             return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
@@ -696,6 +748,7 @@ async def admin_locations_create(request: Request) -> Response:
             address=address,
             delivery_time_start=delivery_time_start,
             delivery_time_end=delivery_time_end,
+            cutoff_time=cutoff_time,
             is_active=is_active,
         )
         db.add(location)
@@ -756,8 +809,9 @@ async def dev_promote_admin(request: Request) -> Response:
 
 
 @app.post("/app/order", include_in_schema=False)
-async def submit_order(request: Request) -> RedirectResponse:
+async def submit_order(request: Request) -> Response:
     """Submit order form from dashboard UI."""
+    lang: str = get_language(request)
     db: Session = db_session.SessionLocal()
     try:
         user: User | None = _current_user_from_cookie(request, db)
@@ -765,16 +819,17 @@ async def submit_order(request: Request) -> RedirectResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         form_data = parse_qs((await request.body()).decode("utf-8"))
-        today: date = date.today()
+        now: datetime = _current_local_datetime()
         location_id_raw: str = form_data.get("location_id", [""])[0].strip()
+        quantities: dict[int, int] = _parse_quantities(form_data)
         if not location_id_raw:
-            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            message = t("order.error.location_required", lang).replace(" ", "+")
             return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         try:
             location_id: int = int(location_id_raw)
         except ValueError:
-            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            message = t("order.error.location_required", lang).replace(" ", "+")
             return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         location: Location | None = (
@@ -783,16 +838,32 @@ async def submit_order(request: Request) -> RedirectResponse:
             .first()
         )
         if location is None:
-            message = t("order.error.location_required", get_language(request)).replace(" ", "+")
+            message = t("order.error.location_required", lang).replace(" ", "+")
             return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        order_for_next_day: bool = form_data.get("order_for_next_day", [""])[0] == "1"
+        try:
+            target_date = resolve_target_order_date(
+                now=now,
+                location=location,
+                order_for_next_day=order_for_next_day,
+            )
+        except CutoffPassedError:
+            return _render_order_page(
+                request=request,
+                error=None,
+                cutoff_prompt=True,
+                selected_location_id=location.id,
+                quantities=quantities,
+            )
 
         order: Order | None = (
             db.query(Order)
-            .filter(Order.user_id == user.id, Order.order_date == today)
+            .filter(Order.user_id == user.id, Order.order_date == target_date)
             .first()
         )
         if order is None:
-            order = Order(user_id=user.id, location_id=location.id, order_date=today, status="created")
+            order = Order(user_id=user.id, location_id=location.id, order_date=target_date, status="created")
             db.add(order)
             db.flush()
         else:
@@ -800,14 +871,7 @@ async def submit_order(request: Request) -> RedirectResponse:
 
         db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 
-        for key, values in form_data.items():
-            if not key.startswith("qty_"):
-                continue
-            menu_item_id: int = int(key.replace("qty_", ""))
-            quantity_raw: str = values[0]
-            if not quantity_raw:
-                continue
-            quantity: int = int(quantity_raw)
+        for menu_item_id, quantity in quantities.items():
             if quantity < 1:
                 continue
             db.add(OrderItem(order_id=order.id, menu_item_id=menu_item_id, quantity=quantity))
@@ -816,7 +880,7 @@ async def submit_order(request: Request) -> RedirectResponse:
     finally:
         db.close()
 
-    message = t("order.updated", get_language(request)).replace(" ", "+")
+    message = t("order.updated", lang).replace(" ", "+")
     return RedirectResponse(url=f"/orders?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 

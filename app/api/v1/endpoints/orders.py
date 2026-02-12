@@ -1,6 +1,6 @@
 """Order endpoints."""
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.menu import MenuItem
+from app.models.location import Location
 from app.models.order import Order, OrderItem
 from app.models.user import User
+from app.services.order_service import CutoffPassedError, resolve_target_order_date
 from app.schemas.order import (
     OrderCreate,
     OrderItemResponse,
@@ -55,17 +57,47 @@ def create_or_replace_order(
     current_user: User = Depends(get_current_user),
 ) -> OrderResponse:
     """Create or replace today's order for the current user."""
-    today: date = date.today()
+    now: datetime = datetime.now()
+
+    location: Location | None = None
+    if payload.location_id is not None:
+        location = (
+            db.query(Location)
+            .filter(Location.id == payload.location_id, Location.is_active.is_(True))
+            .first()
+        )
+    if location is None:
+        location = db.query(Location).filter(Location.is_active.is_(True)).order_by(Location.id.asc()).first()
+    if location is None:
+        location = Location(company_name="Default Location", address="Unknown", is_active=True)
+        db.add(location)
+        db.flush()
+
+    try:
+        target_date: date = resolve_target_order_date(
+            now=now,
+            location=location,
+            order_for_next_day=payload.order_for_next_day,
+        )
+    except CutoffPassedError as exc:
+        raise HTTPException(status_code=400, detail="Cut-off time has passed for today") from exc
 
     order: Order | None = (
         db.query(Order)
-        .filter(Order.user_id == current_user.id, Order.order_date == today)
+        .filter(Order.user_id == current_user.id, Order.order_date == target_date)
         .first()
     )
     if order is None:
-        order = Order(user_id=current_user.id, order_date=today, status="created")
+        order = Order(
+            user_id=current_user.id,
+            location_id=location.id,
+            order_date=target_date,
+            status="created",
+        )
         db.add(order)
         db.flush()
+    else:
+        order.location_id = location.id
 
     db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 

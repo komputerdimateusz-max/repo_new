@@ -34,6 +34,10 @@
         <input type="time" name="delivery_time_end" />
       </label>
     </div>
+    <label class="field">
+      <span>{{ t('locations.cutoff_time', lang) }}</span>
+      <input type="time" name="cutoff_time" />
+    </label>
     <label class="field field-inline">
       <input type="checkbox" name="is_active" checked />
       <span>{{ t('locations.active', lang) }}</span>
@@ -52,6 +56,7 @@
           <th>{{ t('locations.company_name', lang) }}</th>
           <th>{{ t('locations.address', lang) }}</th>
           <th>{{ t('locations.delivery_hours', lang) }}</th>
+          <th>{{ t('locations.cutoff_time', lang) }}</th>
           <th>{{ t('locations.status', lang) }}</th>
           <th>{{ t('settings.column_action', lang) }}</th>
         </tr>
@@ -64,6 +69,13 @@
           <td>
             {% if location.delivery_time_start and location.delivery_time_end %}
             {{ location.delivery_time_start.strftime('%H:%M') }} - {{ location.delivery_time_end.strftime('%H:%M') }}
+            {% else %}
+            {{ t('locations.hours_not_set', lang) }}
+            {% endif %}
+          </td>
+          <td>
+            {% if location.cutoff_time %}
+            {{ location.cutoff_time.strftime('%H:%M') }}
             {% else %}
             {{ t('locations.hours_not_set', lang) }}
             {% endif %}

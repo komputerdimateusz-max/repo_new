@@ -18,6 +18,7 @@ class Location(Base):
     address: Mapped[str] = mapped_column(String(255), nullable=False)
     delivery_time_start: Mapped[time | None] = mapped_column(Time, nullable=True)
     delivery_time_end: Mapped[time | None] = mapped_column(Time, nullable=True)
+    cutoff_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

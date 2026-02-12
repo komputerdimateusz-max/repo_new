@@ -14,6 +14,9 @@
 
 <section class="card stack-md" aria-label="My orders">
   <p><strong>{{ t('orders.selected_date', lang) }}:</strong> {{ selected_date.isoformat() }}</p>
+  {% if tomorrow_order_exists and selected_date != tomorrow_date %}
+  <p><a class="text-link" href="/orders?date={{ tomorrow_date.isoformat() }}">{{ t('orders.show_tomorrow', lang) }}</a></p>
+  {% endif %}
   {% if order_items %}
   <ul>
     {% for item in order_items %}
