@@ -13,19 +13,25 @@
 {% endif %}
 
 <section class="stack-md" aria-label="Dashboard sections">
-  <a href="/menu" class="card card-link" aria-label="{{ t('dashboard.today_menu', lang) }}">
-    <h2>{{ t('dashboard.today_menu', lang) }}</h2>
-    <p class="lead">{{ t('dashboard.card_menu_description', lang) }}</p>
+  <a href="/menu" class="card-link" aria-label="{{ t('dashboard.today_menu', lang) }}">
+    <div class="card">
+      <h3>{{ t('dashboard.today_menu', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.card_menu_description', lang) }}</p>
+    </div>
   </a>
 
-  <a href="/orders" class="card card-link" aria-label="{{ t('dashboard.my_orders', lang) }}">
-    <h2>{{ t('dashboard.my_orders', lang) }}</h2>
-    <p class="lead">{{ t('dashboard.card_orders_description', lang) }}</p>
+  <a href="/orders" class="card-link" aria-label="{{ t('dashboard.my_orders', lang) }}">
+    <div class="card">
+      <h3>{{ t('dashboard.my_orders', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.card_orders_description', lang) }}</p>
+    </div>
   </a>
 
-  <a href="/billing" class="card card-link" aria-label="{{ t('dashboard.company_billing', lang) }}">
-    <h2>{{ t('dashboard.company_billing', lang) }}</h2>
-    <p class="lead">{{ t('dashboard.billing_placeholder', lang) }}</p>
+  <a href="/billing" class="card-link" aria-label="{{ t('dashboard.company_billing', lang) }}">
+    <div class="card">
+      <h3>{{ t('dashboard.company_billing', lang) }}</h3>
+      <p class="lead">{{ t('dashboard.billing_placeholder', lang) }}</p>
+    </div>
   </a>
 </section>
 
