@@ -8,7 +8,14 @@
   <p class="lead">Use your account to continue to your dashboard.</p>
 </header>
 
-<form class="card stack-md" aria-label="Login form">
+{% if message %}
+<p class="alert alert-success" role="status">{{ message }}</p>
+{% endif %}
+{% if error %}
+<p class="alert alert-error" role="alert">{{ error }}</p>
+{% endif %}
+
+<form class="card stack-md" aria-label="Login form" method="post" action="/login">
   <label class="field">
     <span>Email</span>
     <input type="email" name="email" autocomplete="email" placeholder="you@company.com" required />
@@ -19,8 +26,11 @@
     <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
   </label>
 
-  <button type="button" class="btn btn-primary">Sign in</button>
+  <button type="submit" class="btn btn-primary">Sign in</button>
 </form>
 
-<p class="top-gap-sm"><a class="text-link" href="/">Back to Home</a></p>
+<section class="stack-md top-gap-sm">
+  <a class="btn btn-secondary" href="/register">Create account</a>
+  <p><a class="text-link" href="/">Back to Home</a></p>
+</section>
 {% endblock %}

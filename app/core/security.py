@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services.user_service import get_user_by_id
 
-pwd_context: CryptContext = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context: CryptContext = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 bearer_scheme: HTTPBearer = HTTPBearer(auto_error=True)
 
 
