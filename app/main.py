@@ -25,7 +25,14 @@ from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
 from app.models import MenuItem, Order, OrderItem, User
 from app.services.menu_service import create_menu_item, list_menu_items_for_date, toggle_menu_item_active
-from app.services.user_service import create_user, get_user_by_email, get_user_by_id
+from app.services.user_service import (
+    count_admin_users,
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    list_users,
+    update_user_role,
+)
 
 app: FastAPI = FastAPI(title=settings.app_name)
 
@@ -53,6 +60,22 @@ def _require_menu_manager_user(request: Request, db: Session) -> User | Redirect
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     if user.role not in MENU_MANAGER_ROLES:
         return _forbidden_catering_access(request)
+    return user
+
+
+def _forbidden_settings_access(request: Request) -> RedirectResponse:
+    """Redirect non-admin users to dashboard with localized error."""
+    message: str = t("settings.error.forbidden", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/app?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _require_admin_user(request: Request, db: Session) -> User | RedirectResponse:
+    """Return authenticated admin user or redirect response."""
+    user: User | None = _current_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role != "admin":
+        return _forbidden_settings_access(request)
     return user
 
 
@@ -436,6 +459,86 @@ def billing_page(request: Request) -> HTMLResponse:
         )
     finally:
         db.close()
+
+
+@app.get("/settings", include_in_schema=False, response_class=HTMLResponse)
+def settings_page(request: Request, message: str | None = None) -> Response:
+    """Render user role management page for admin users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        users: list[User] = list_users(db=db)
+        return templates.TemplateResponse(
+            "settings.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                users=users,
+                message=message,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/settings/users/{user_id}/role", include_in_schema=False)
+async def settings_update_user_role(request: Request, user_id: int) -> Response:
+    """Update selected user role from admin settings form."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    role: str = form_data.get("role", [""])[0]
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        if role not in ALLOWED_ROLES:
+            message = t("settings.error.invalid_role", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        user: User | None = get_user_by_id(db=db, user_id=user_id)
+        if user is None:
+            message = t("settings.error.user_not_found", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        update_user_role(db=db, user=user, role=role)
+    finally:
+        db.close()
+
+    message = t("settings.success.role_updated", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/dev/promote-admin", include_in_schema=False)
+async def dev_promote_admin(request: Request) -> Response:
+    """Promote a user to admin in development environment only."""
+    if settings.app_env != "dev":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    email: str = form_data.get("email", [""])[0].strip()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        if count_admin_users(db=db) > 0:
+            message = t("settings.dev.admin_exists", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/login?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        user: User | None = get_user_by_email(db=db, email=email)
+        if user is None:
+            message = t("settings.error.user_not_found", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/login?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        update_user_role(db=db, user=user, role="admin")
+    finally:
+        db.close()
+
+    message = t("settings.dev.promoted", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/login?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/app/order", include_in_schema=False)
