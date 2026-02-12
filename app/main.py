@@ -11,6 +11,7 @@ from app.api.v1.api import api_router
 from app.core.config import settings
 from app.db.base import Base
 from app.db import session as db_session
+from app.db.seed import ensure_admin_user
 
 app: FastAPI = FastAPI(title=settings.app_name)
 
@@ -20,10 +21,15 @@ app.mount("/static", StaticFiles(directory=str(base_dir / "frontend" / "static")
 
 
 @app.on_event("startup")
-def create_tables_on_startup() -> None:
-    """Create database tables for local SQLite startup flow."""
-    if settings.database_url.startswith("sqlite"):
-        Base.metadata.create_all(bind=db_session.engine)
+def initialize_database_on_startup() -> None:
+    """Initialize database schema and development seed data."""
+    Base.metadata.create_all(bind=db_session.engine)
+
+    db = db_session.SessionLocal()
+    try:
+        ensure_admin_user(db)
+    finally:
+        db.close()
 
 
 @app.get("/", include_in_schema=False, response_class=HTMLResponse)
