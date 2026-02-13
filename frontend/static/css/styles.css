@@ -112,12 +112,6 @@ body {
   }
 }
 
-@media (min-width: 1080px) {
-  .card-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 .tile-card {
   height: 100%;
   margin-bottom: 0;
@@ -485,6 +479,10 @@ select {
   display: block;
   min-height: 132px;
   transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.tile-card * {
+  text-decoration: none;
 }
 
 .tile-card:hover,
