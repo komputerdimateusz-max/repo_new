@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.api.v1.api import api_router
@@ -22,6 +21,7 @@ from app.core.security import (
 )
 from app.db.base import Base
 from app.db import session as db_session
+from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
 from app.models import CatalogItem, DailyMenuItem, Location, Order, OrderItem, User
@@ -201,80 +201,11 @@ def _list_today_catalog_items(db: Session, target_date: date) -> list[CatalogIte
     return [row.catalog_item for row in daily_rows]
 
 
-def _ensure_location_schema_compatibility() -> None:
-    """Apply lightweight schema updates for legacy SQLite databases."""
-    with db_session.engine.begin() as connection:
-        inspector = inspect(connection)
-        table_names: set[str] = set(inspector.get_table_names())
-
-        if "locations" not in table_names:
-            connection.execute(
-                text(
-                    """
-                    CREATE TABLE locations (
-                        id INTEGER PRIMARY KEY,
-                        company_name VARCHAR(255) NOT NULL,
-                        address VARCHAR(255) NOT NULL,
-                        delivery_time_start TIME NULL,
-                        delivery_time_end TIME NULL,
-                        is_active BOOLEAN NOT NULL DEFAULT 1,
-                        created_at DATETIME NOT NULL
-                    )
-                    """
-                )
-            )
-
-        location_columns: set[str] = {column["name"] for column in inspector.get_columns("locations")}
-        if "created_at" not in location_columns:
-            now_iso: str = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
-            connection.execute(
-                text(
-                    "ALTER TABLE locations ADD COLUMN created_at DATETIME NOT NULL "
-                    f"DEFAULT '{now_iso}'"
-                )
-            )
-
-        if "cutoff_time" not in location_columns:
-            connection.execute(text("ALTER TABLE locations ADD COLUMN cutoff_time TIME"))
-
-        orders_columns: set[str] = {column["name"] for column in inspector.get_columns("orders")}
-        if "location_id" not in orders_columns:
-            default_location = connection.execute(
-                text("SELECT id FROM locations ORDER BY id ASC LIMIT 1")
-            ).scalar_one_or_none()
-            if default_location is None:
-                now_iso = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO locations (company_name, address, is_active, created_at)
-                        VALUES (:company_name, :address, :is_active, :created_at)
-                        """
-                    ),
-                    {
-                        "company_name": "Legacy Location",
-                        "address": "Unknown Address",
-                        "is_active": True,
-                        "created_at": now_iso,
-                    },
-                )
-                default_location = connection.execute(
-                    text("SELECT id FROM locations ORDER BY id ASC LIMIT 1")
-                ).scalar_one()
-
-            connection.execute(
-                text(
-                    "ALTER TABLE orders ADD COLUMN location_id INTEGER "
-                    f"NOT NULL DEFAULT {int(default_location)}"
-                )
-            )
-
-
 @app.on_event("startup")
 def initialize_database_on_startup() -> None:
     """Initialize database schema and development seed data."""
     Base.metadata.create_all(bind=db_session.engine)
-    _ensure_location_schema_compatibility()
+    ensure_sqlite_schema(db_session.engine)
 
     db = db_session.SessionLocal()
     try:
