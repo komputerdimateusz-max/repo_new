@@ -28,6 +28,7 @@ class CatalogItem(Base):
     __tablename__ = "catalog_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    restaurant_id: Mapped[int | None] = mapped_column(ForeignKey("restaurants.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -46,9 +47,17 @@ class DailyMenuItem(Base):
     """Activation row that enables catalog items for a specific day."""
 
     __tablename__ = "daily_menu_items"
-    __table_args__ = (UniqueConstraint("menu_date", "catalog_item_id", name="uq_daily_menu_date_catalog_item"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "restaurant_id",
+            "menu_date",
+            "catalog_item_id",
+            name="uq_daily_menu_restaurant_date_catalog_item",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    restaurant_id: Mapped[int | None] = mapped_column(ForeignKey("restaurants.id"), nullable=True, index=True)
     menu_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     catalog_item_id: Mapped[int] = mapped_column(ForeignKey("catalog_items.id"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

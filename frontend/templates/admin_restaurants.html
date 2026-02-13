@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Restaurants · repo_new{% endblock %}
+{% block content %}
+<h1>Restaurants</h1>
+{% if message %}<p class="alert alert-success">{{ message }}</p>{% endif %}
+<section class="card stack-md">
+  <form method="post" action="/admin/restaurants" class="stack-md">
+    <label class="field"><span>Name</span><input type="text" name="name" required /></label>
+    <label class="field-inline"><input type="checkbox" name="is_active" checked /> Active</label>
+    <button type="submit" class="btn btn-primary">Create</button>
+  </form>
+</section>
+<section class="card stack-md top-gap-sm">
+  <ul>
+    {% for restaurant in restaurants %}
+    <li>{{ restaurant.name }} {% if not restaurant.is_active %}(inactive){% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

@@ -27,3 +27,4 @@ class Location(Base):
     )
 
     orders: Mapped[list["Order"]] = relationship(back_populates="location")
+    restaurant_mappings: Mapped[list["RestaurantLocation"]] = relationship()

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Restaurant Coverage · repo_new{% endblock %}
+{% block content %}
+<h1>Restaurant delivery coverage</h1>
+<form method="get" action="/admin/restaurant-coverage" class="stack-md">
+  <label class="field"><span>Restaurant</span>
+    <select name="restaurant_id" onchange="this.form.submit()">
+      {% for restaurant in restaurants %}
+      <option value="{{ restaurant.id }}" {% if selected_restaurant_id == restaurant.id %}selected{% endif %}>{{ restaurant.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+<section class="card stack-md">
+{% for location in locations %}
+  {% set mapping = mapping_by_location.get(location.id) %}
+  <form method="post" action="/admin/restaurant-coverage" class="stack-md">
+    <input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />
+    <input type="hidden" name="location_id" value="{{ location.id }}" />
+    <strong>{{ location.company_name }} — {{ location.address }}</strong>
+    <label class="field-inline"><input type="checkbox" name="is_active" {% if mapping and mapping.is_active %}checked{% endif %}/> Active mapping</label>
+    <label class="field"><span>Cutoff override</span><input type="time" name="cut_off_time_override" value="{{ mapping.cut_off_time_override.strftime('%H:%M') if mapping and mapping.cut_off_time_override else '' }}" /></label>
+    <button type="submit" class="btn btn-secondary">Save</button>
+  </form>
+{% endfor %}
+</section>
+{% endblock %}
