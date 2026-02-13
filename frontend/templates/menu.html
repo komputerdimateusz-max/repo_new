@@ -3,29 +3,34 @@
 {% block title %}repo_new | {{ t('dashboard.today_menu', lang) }}{% endblock %}
 
 {% block content %}
-<header class="stack-md">
-  <h1>{{ t('dashboard.today_menu', lang) }}</h1>
-  <p class="lead">{{ t('menu.page_lead', lang) }}</p>
-</header>
-
-<section class="card stack-md" aria-label="Today's menu items">
-  {% if menu_items %}
-  <div class="stack-md">
-    {% for item in menu_items %}
+<div class="page-container">
+  <header class="page-header">
     <div>
-      <strong>{{ item.name }}</strong>
-      {% if item.description %}
-      <p>{{ item.description }}</p>
-      {% endif %}
-      <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+      <h1 class="page-title">{{ t('dashboard.today_menu', lang) }}</h1>
+      <p class="page-subtitle">{{ t('menu.page_lead', lang) }}</p>
     </div>
-    {% endfor %}
-  </div>
-  <a href="/order" class="btn btn-primary">{{ t('dashboard.place_order', lang) }}</a>
-  {% else %}
-  <p>{{ t('dashboard.no_menu', lang) }}</p>
-  {% endif %}
-</section>
+    {% if current_user %}
+    <span class="pill pill--accent">{% if current_user.role == 'customer' %}Customer{% elif current_user.role == 'restaurant' %}Restaurant{% else %}Administrator{% endif %}</span>
+    {% endif %}
+  </header>
 
-<p class="top-gap-sm"><a class="text-link" href="/app">{{ t('nav.app', lang) }}</a></p>
+  <section class="form-card" aria-label="Today's menu items">
+    {% if menu_items %}
+    <div class="stack-md">
+      {% for item in menu_items %}
+      <div>
+        <strong>{{ item.name }}</strong>
+        {% if item.description %}
+        <p>{{ item.description }}</p>
+        {% endif %}
+        <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+      </div>
+      {% endfor %}
+    </div>
+    <a href="/order" class="btn btn--primary">{{ t('dashboard.place_order', lang) }}</a>
+    {% else %}
+    <p>{{ t('dashboard.no_menu', lang) }}</p>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}

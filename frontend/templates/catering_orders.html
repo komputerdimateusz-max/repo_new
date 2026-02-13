@@ -3,81 +3,92 @@
 {% block title %}repo_new | {{ t('catering_orders.title', lang) }}{% endblock %}
 
 {% block content %}
-<header class="stack-md">
-  <h1>{{ t('catering_orders.title', lang) }}{% if current_restaurant %} - {{ current_restaurant.name }}{% endif %}</h1>
-  <p class="lead">{{ t('catering_orders.lead', lang) }}</p>
-</header>
+<div class="page-container">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">{{ t('catering_orders.title', lang) }}{% if current_restaurant %} - {{ current_restaurant.name }}{% endif %}</h1>
+      <p class="page-subtitle">{{ t('catering_orders.lead', lang) }}</p>
+    </div>
+    <span class="pill pill--accent">Restaurant</span>
+  </header>
 
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.select_date', lang) }}</h2>
-  <form method="get" action="/catering/orders" class="stack-md">
-    <label class="field">
-      <span>{{ t('menu.date', lang) }}</span>
-      <input type="date" name="date" value="{{ selected_date.isoformat() }}" />
-    </label>
-    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
-  </form>
-</section>
+  <section class="section">
+    <h2 class="section-title">{{ t('menu.select_date', lang) }}</h2>
+    <div class="form-card">
+      <form method="get" action="/catering/orders" class="stack-md">
+        <label class="field">
+          <span>{{ t('menu.date', lang) }}</span>
+          <input class="input" type="date" name="date" value="{{ selected_date.isoformat() }}" />
+        </label>
+        <button type="submit" class="btn btn--secondary">{{ t('menu.load_date', lang) }}</button>
+      </form>
+    </div>
+  </section>
 
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('catering_orders.summary_title', lang) }}</h2>
-  {% if location_summaries %}
-  <div class="table-wrap">
-    <table class="simple-table">
-      <thead>
-        <tr>
-          <th>{{ t('locations.company_name', lang) }}</th>
-          <th>{{ t('locations.address', lang) }}</th>
-          <th>{{ t('catering_orders.summary_orders_count', lang) }}</th>
-          <th>{{ t('catering_orders.summary_items_count', lang) }}</th>
-          <th>{{ t('catering_orders.summary_total', lang) }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for summary in location_summaries %}
-        <tr>
-          <td>{{ summary.company_name }}</td>
-          <td>{{ summary.address }}</td>
-          <td>{{ summary.orders_count }}</td>
-          <td>{{ summary.total_items }}</td>
-          <td>{{ '%.2f'|format(summary.total_cents / 100) }} PLN</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p>{{ t('catering_orders.empty', lang) }}</p>
-  {% endif %}
-</section>
+  <section class="section">
+    <h2 class="section-title">{{ t('catering_orders.summary_title', lang) }}</h2>
+    <div class="form-card">
+      {% if location_summaries %}
+      <div class="table-wrap">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>{{ t('locations.company_name', lang) }}</th>
+              <th>{{ t('locations.address', lang) }}</th>
+              <th>{{ t('catering_orders.summary_orders_count', lang) }}</th>
+              <th>{{ t('catering_orders.summary_items_count', lang) }}</th>
+              <th>{{ t('catering_orders.summary_total', lang) }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for summary in location_summaries %}
+            <tr>
+              <td>{{ summary.company_name }}</td>
+              <td>{{ summary.address }}</td>
+              <td>{{ summary.orders_count }}</td>
+              <td>{{ summary.total_items }}</td>
+              <td>{{ '%.2f'|format(summary.total_cents / 100) }} PLN</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p>{{ t('catering_orders.empty', lang) }}</p>
+      {% endif %}
+    </div>
+  </section>
 
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('catering_orders.table_title', lang) }}</h2>
-  {% if order_rows %}
-  <div class="table-wrap">
-    <table class="simple-table">
-      <thead>
-        <tr>
-          <th>{{ t('catering_orders.column_order_id', lang) }}</th>
-          <th>{{ t('catering_orders.column_user_email', lang) }}</th>
-          <th>{{ t('catering_orders.column_items', lang) }}</th>
-          <th>{{ t('catering_orders.column_total', lang) }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in order_rows %}
-        <tr>
-          <td>#{{ row.order_id }}</td>
-          <td>{{ row.user_email }}</td>
-          <td>{{ row.total_items }}</td>
-          <td>{{ '%.2f'|format(row.total_cents / 100) }} PLN</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p>{{ t('catering_orders.empty', lang) }}</p>
-  {% endif %}
-</section>
+  <section class="section">
+    <h2 class="section-title">{{ t('catering_orders.table_title', lang) }}</h2>
+    <div class="form-card">
+      {% if order_rows %}
+      <div class="table-wrap">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>{{ t('catering_orders.column_order_id', lang) }}</th>
+              <th>{{ t('catering_orders.column_user_email', lang) }}</th>
+              <th>{{ t('catering_orders.column_items', lang) }}</th>
+              <th>{{ t('catering_orders.column_total', lang) }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in order_rows %}
+            <tr>
+              <td>#{{ row.order_id }}</td>
+              <td>{{ row.user_email }}</td>
+              <td>{{ row.total_items }}</td>
+              <td>{{ '%.2f'|format(row.total_cents / 100) }} PLN</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p>{{ t('catering_orders.empty', lang) }}</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
 {% endblock %}

@@ -3,99 +3,104 @@
 {% block title %}repo_new | {{ t('menu.title', lang) }}{% endblock %}
 
 {% block content %}
-<header class="stack-md">
-  <h1>{{ t('menu.title', lang) }}{% if current_restaurant %} - {{ current_restaurant.name }}{% endif %}</h1>
-  <p class="lead">{{ t('menu.subtitle', lang) }}</p>
-</header>
+<div class="page-container">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">{{ t('menu.title', lang) }}{% if current_restaurant %} - {{ current_restaurant.name }}{% endif %}</h1>
+      <p class="page-subtitle">{{ t('menu.subtitle', lang) }}</p>
+    </div>
+    <span class="pill pill--accent">Restaurant</span>
+  </header>
 
-{% if message %}
-<p class="alert alert-success top-gap-sm" role="status">{{ message }}</p>
-{% endif %}
-{% if error %}
-<p class="alert alert-error top-gap-sm" role="alert">{{ error }}</p>
-{% endif %}
-
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.add_item', lang) }}</h2>
-  <form method="post" action="/catering/menu" class="stack-md">
-    <label class="field">
-      <span>{{ t('menu.name', lang) }}</span>
-      <input type="text" name="name" required />
-    </label>
-    <label class="field">
-      <span>{{ t('menu.description', lang) }}</span>
-      <input type="text" name="description" />
-    </label>
-    <label class="field">
-      <span>{{ t('menu.price', lang) }}</span>
-      <input type="number" step="0.01" min="0.01" name="price" placeholder="12.50" required />
-    </label>
-    <label class="checkbox-field">
-      <input type="checkbox" name="is_active" checked />
-      <span>{{ t('menu.active', lang) }}</span>
-    </label>
-    <label class="checkbox-field">
-      <input type="checkbox" name="is_standard" />
-      <span>{{ t('menu.standard', lang) }}</span>
-    </label>
-    <button type="submit" class="btn btn-primary">{{ t('menu.add_button', lang) }}</button>
-  </form>
-</section>
-
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.catalog_items', lang) }}</h2>
-  {% if catalog_items %}
-    <ul class="menu-list">
-      {% for item in catalog_items %}
-      <li class="menu-list-item">
-        <div class="stack-md">
-          <div>
-            <strong>{{ item.name }}</strong>
-            {% if item.description %}<p>{{ item.description }}</p>{% endif %}
-            <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
-          </div>
-          <div class="menu-actions">
-            <span class="badge {% if item.is_active %}badge-active{% else %}badge-inactive{% endif %}">
-              {% if item.is_active %}{{ t('menu.status_active', lang) }}{% else %}{{ t('menu.status_inactive', lang) }}{% endif %}
-            </span>
-            <span class="badge {% if item.id in enabled_today_ids %}badge-active{% else %}badge-inactive{% endif %}">
-              {% if item.id in enabled_today_ids %}{{ t('menu.enabled_today', lang) }}{% else %}{{ t('menu.not_enabled_today', lang) }}{% endif %}
-            </span>
-            <form method="post" action="/catering/menu/{{ item.id }}/toggle">
-              <button type="submit" class="btn btn-secondary btn-inline">
-                {% if item.id in enabled_today_ids %}{{ t('menu.disable_today', lang) }}{% else %}{{ t('menu.enable_today', lang) }}{% endif %}
-              </button>
-            </form>
-          </div>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-  <p>{{ t('menu.empty', lang) }}</p>
+  {% if message %}
+  <p class="alert alert-success" role="status">{{ message }}</p>
   {% endif %}
-</section>
+  {% if error %}
+  <p class="alert alert-error" role="alert">{{ error }}</p>
+  {% endif %}
 
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.items_for_day', lang) }}</h2>
-  {% set active_today = today_items | selectattr('is_active') | list %}
-  {% if active_today %}
-    <ul class="menu-list">
-      {% for daily in active_today %}
-      {% if daily.catalog_item.is_active %}
-      <li class="menu-list-item">
-        <strong>{{ daily.catalog_item.name }}</strong>
-        {% if daily.catalog_item.description %}<p>{{ daily.catalog_item.description }}</p>{% endif %}
-        <p>{{ '%.2f'|format(daily.catalog_item.price_cents / 100) }} PLN</p>
-        <form method="post" action="/catering/menu/{{ daily.catalog_item_id }}/toggle">
-          <button type="submit" class="btn btn-secondary btn-inline">{{ t('menu.disable_today', lang) }}</button>
-        </form>
-      </li>
+  <section class="section">
+    <h2 class="section-title">{{ t('menu.add_item', lang) }}</h2>
+    <div class="form-card">
+      <form method="post" action="/catering/menu" class="stack-md">
+        <label class="field">
+          <span>{{ t('menu.name', lang) }}</span>
+          <input class="input" type="text" name="name" required />
+        </label>
+        <label class="field">
+          <span>{{ t('menu.description', lang) }}</span>
+          <input class="input" type="text" name="description" />
+        </label>
+        <label class="field">
+          <span>{{ t('menu.price', lang) }}</span>
+          <input class="input" type="number" step="0.01" min="0.01" name="price" placeholder="12.50" required />
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" name="is_active" checked />
+          <span>{{ t('menu.active', lang) }}</span>
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" name="is_standard" />
+          <span>{{ t('menu.standard', lang) }}</span>
+        </label>
+        <button type="submit" class="btn btn--primary">{{ t('menu.add_button', lang) }}</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('menu.catalog_items', lang) }}</h2>
+    <div class="form-card">
+      {% if catalog_items %}
+      <ul class="menu-list">
+        {% for item in catalog_items %}
+        <li class="menu-list-item">
+          <div class="stack-md">
+            <div>
+              <strong>{{ item.name }}</strong>
+              {% if item.description %}<p>{{ item.description }}</p>{% endif %}
+              <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+            </div>
+            <div class="menu-actions">
+              <span class="badge {% if item.is_active %}badge-active{% else %}badge-inactive{% endif %}">{% if item.is_active %}{{ t('menu.status_active', lang) }}{% else %}{{ t('menu.status_inactive', lang) }}{% endif %}</span>
+              <span class="badge {% if item.id in enabled_today_ids %}badge-active{% else %}badge-inactive{% endif %}">{% if item.id in enabled_today_ids %}{{ t('menu.enabled_today', lang) }}{% else %}{{ t('menu.not_enabled_today', lang) }}{% endif %}</span>
+              <form method="post" action="/catering/menu/{{ item.id }}/toggle">
+                <button type="submit" class="btn btn--secondary btn-inline">{% if item.id in enabled_today_ids %}{{ t('menu.disable_today', lang) }}{% else %}{{ t('menu.enable_today', lang) }}{% endif %}</button>
+              </form>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>{{ t('menu.empty', lang) }}</p>
       {% endif %}
-      {% endfor %}
-    </ul>
-  {% else %}
-  <p>{{ t('menu.empty', lang) }}</p>
-  {% endif %}
-</section>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('menu.items_for_day', lang) }}</h2>
+    <div class="form-card">
+      {% set active_today = today_items | selectattr('is_active') | list %}
+      {% if active_today %}
+      <ul class="menu-list">
+        {% for daily in active_today %}
+        {% if daily.catalog_item.is_active %}
+        <li class="menu-list-item">
+          <strong>{{ daily.catalog_item.name }}</strong>
+          {% if daily.catalog_item.description %}<p>{{ daily.catalog_item.description }}</p>{% endif %}
+          <p>{{ '%.2f'|format(daily.catalog_item.price_cents / 100) }} PLN</p>
+          <form method="post" action="/catering/menu/{{ daily.catalog_item_id }}/toggle">
+            <button type="submit" class="btn btn--secondary btn-inline">{{ t('menu.disable_today', lang) }}</button>
+          </form>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>{{ t('menu.empty', lang) }}</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
 {% endblock %}

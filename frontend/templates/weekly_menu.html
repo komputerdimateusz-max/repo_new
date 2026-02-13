@@ -3,66 +3,77 @@
 {% block title %}repo_new | {{ t('weekly_menu.title', lang) }}{% endblock %}
 
 {% block content %}
-<header class="stack-md">
-  <h1>{{ t('weekly_menu.title', lang) }}</h1>
-  <p class="lead">{{ t('weekly_menu.lead', lang) }}</p>
-</header>
+<div class="page-container">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">{{ t('weekly_menu.title', lang) }}</h1>
+      <p class="page-subtitle">{{ t('weekly_menu.lead', lang) }}</p>
+    </div>
+    <span class="pill pill--accent">Administrator</span>
+  </header>
 
-{% if message %}
-<p class="alert alert-success" role="status">{{ message }}</p>
-{% endif %}
-
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('menu.select_date', lang) }}</h2>
-  <form method="get" action="/admin/weekly-menu" class="stack-md">
-    <input type="date" name="date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
-    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
-  </form>
-</section>
-
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('weekly_menu.add_item', lang) }}</h2>
-  <form method="post" action="/admin/weekly-menu/add" class="stack-md">
-    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
-    <select name="catalog_item_id" required>
-      <option value="">{{ t('weekly_menu.select_catalog', lang) }}</option>
-      {% for item in catalog_items %}
-      <option value="{{ item.id }}">{{ item.name }} — {{ '%.2f'|format(item.price_cents / 100) }} PLN</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-primary">{{ t('weekly_menu.add_item', lang) }}</button>
-  </form>
-  <div class="row-actions">
-    <form method="post" action="/admin/weekly-menu/enable-standard">
-      <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
-      <button type="submit" class="btn btn-secondary">{{ t('weekly_menu.enable_standard', lang) }}</button>
-    </form>
-    <form method="post" action="/admin/weekly-menu/copy" class="row-actions">
-      <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
-      <input type="date" name="from_date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
-      <button type="submit" class="btn btn-secondary">{{ t('weekly_menu.copy_from_date', lang) }}</button>
-    </form>
-  </div>
-</section>
-
-<section class="card stack-md top-gap-sm">
-  <h2>{{ t('weekly_menu.items_for_date', lang) }} {{ selected_date.isoformat() }}</h2>
-  {% if menu_rows %}
-  <ul class="menu-list">
-    {% for row in menu_rows %}
-    {% if row.is_active and row.catalog_item.is_active %}
-    <li class="menu-list-item">
-      <strong>{{ row.catalog_item.name }}</strong>
-      <p>{{ '%.2f'|format(row.catalog_item.price_cents / 100) }} PLN</p>
-      <form method="post" action="/admin/weekly-menu/{{ row.id }}/remove?date={{ selected_date.isoformat() }}">
-        <button type="submit" class="btn btn-secondary btn-inline">{{ t('weekly_menu.remove', lang) }}</button>
-      </form>
-    </li>
-    {% endif %}
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p>{{ t('order.empty_for_date', lang) }}</p>
+  {% if message %}
+  <p class="alert alert-success" role="status">{{ message }}</p>
   {% endif %}
-</section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('menu.select_date', lang) }}</h2>
+    <div class="form-card">
+      <form method="get" action="/admin/weekly-menu" class="stack-md">
+        <input class="input" type="date" name="date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
+        <button type="submit" class="btn btn--secondary">{{ t('menu.load_date', lang) }}</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('weekly_menu.add_item', lang) }}</h2>
+    <div class="form-card stack-md">
+      <form method="post" action="/admin/weekly-menu/add" class="stack-md">
+        <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+        <select class="input" name="catalog_item_id" required>
+          <option value="">{{ t('weekly_menu.select_catalog', lang) }}</option>
+          {% for item in catalog_items %}
+          <option value="{{ item.id }}">{{ item.name }} — {{ '%.2f'|format(item.price_cents / 100) }} PLN</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn--primary">{{ t('weekly_menu.add_item', lang) }}</button>
+      </form>
+      <div class="row-actions">
+        <form method="post" action="/admin/weekly-menu/enable-standard">
+          <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+          <button type="submit" class="btn btn--secondary">{{ t('weekly_menu.enable_standard', lang) }}</button>
+        </form>
+        <form method="post" action="/admin/weekly-menu/copy" class="row-actions">
+          <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+          <input class="input" type="date" name="from_date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
+          <button type="submit" class="btn btn--secondary">{{ t('weekly_menu.copy_from_date', lang) }}</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('weekly_menu.items_for_date', lang) }} {{ selected_date.isoformat() }}</h2>
+    <div class="form-card">
+      {% if menu_rows %}
+      <ul class="menu-list">
+        {% for row in menu_rows %}
+        {% if row.is_active and row.catalog_item.is_active %}
+        <li class="menu-list-item">
+          <strong>{{ row.catalog_item.name }}</strong>
+          <p>{{ '%.2f'|format(row.catalog_item.price_cents / 100) }} PLN</p>
+          <form method="post" action="/admin/weekly-menu/{{ row.id }}/remove?date={{ selected_date.isoformat() }}">
+            <button type="submit" class="btn btn--secondary btn-inline">{{ t('weekly_menu.remove', lang) }}</button>
+          </form>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>{{ t('order.empty_for_date', lang) }}</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
 {% endblock %}
