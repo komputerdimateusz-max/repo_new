@@ -35,7 +35,7 @@
   </a>
 </section>
 
-{% if current_user.role in ['admin', 'catering'] %}
+{% if current_user.role in ['admin', 'restaurant'] %}
 <section class="stack-md top-gap-sm" aria-label="{{ t('dashboard.admin_tools', lang) }}">
   <h2 class="section-heading">{{ t('dashboard.admin_tools', lang) }}</h2>
 
@@ -78,6 +78,10 @@
       <p class="lead">{{ t('dashboard.catering_orders_description', lang) }}</p>
     </div>
   </a>
+  {% if current_user.role == 'restaurant' %}
+  <a href="/restaurant/opening-hours" class="card-link"><div class="card"><h3>Opening hours</h3><p class="lead">Manage your restaurant opening hours.</p></div></a>
+  <a href="/restaurant/coverage" class="card-link"><div class="card"><h3>Delivery coverage</h3><p class="lead">Manage served locations and cut-off overrides.</p></div></a>
+  {% endif %}
 </section>
 {% endif %}
 

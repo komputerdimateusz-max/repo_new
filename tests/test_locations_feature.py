@@ -92,7 +92,7 @@ def test_non_admin_cannot_access_admin_locations(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        _login_with_role(client, "employee-location@example.com", "employee")
+        _login_with_role(client, "employee-location@example.com", "customer")
         response = client.get("/admin/locations", follow_redirects=False)
 
     assert response.status_code == 303
@@ -124,7 +124,7 @@ def test_order_requires_location(tmp_path: Path, monkeypatch) -> None:
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "order-no-location@example.com", "employee")
+        _login_with_role(client, "order-no-location@example.com", "customer")
         response = client.post("/app/order", data={"qty_1": "1"}, follow_redirects=False)
 
     assert response.status_code == 303
@@ -160,7 +160,7 @@ def test_order_saved_with_location_id(tmp_path: Path, monkeypatch) -> None:
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "order-location@example.com", "employee")
+        _login_with_role(client, "order-location@example.com", "customer")
         response = client.post(
             "/app/order",
             data={"location_id": str(location_id), "qty_1": "2"},
@@ -201,7 +201,7 @@ def test_order_for_today_before_cutoff_succeeds(tmp_path: Path, monkeypatch) -> 
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "before-cutoff@example.com", "employee")
+        _login_with_role(client, "before-cutoff@example.com", "customer")
         response = client.post(
             "/app/order",
             data={"location_id": str(location.id), "qty_1": "1"},
@@ -234,7 +234,7 @@ def test_order_for_today_after_cutoff_shows_prompt(tmp_path: Path, monkeypatch) 
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "after-cutoff@example.com", "employee")
+        _login_with_role(client, "after-cutoff@example.com", "customer")
         response = client.post(
             "/app/order",
             data={"location_id": str(location.id), "qty_1": "1"},
@@ -275,7 +275,7 @@ def test_order_for_tomorrow_after_cutoff_succeeds(tmp_path: Path, monkeypatch) -
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "tomorrow-order@example.com", "employee")
+        _login_with_role(client, "tomorrow-order@example.com", "customer")
         response = client.post(
             "/app/order",
             data={"location_id": str(location.id), "qty_1": "1", "order_for_next_day": "1"},

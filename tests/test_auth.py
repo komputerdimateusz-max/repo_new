@@ -31,14 +31,14 @@ def test_register_creates_user(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/auth/register",
-            json={"email": "user@example.com", "password": "secret123", "role": "employee"},
+            json={"email": "user@example.com", "password": "secret123", "role": "customer"},
         )
 
     assert response.status_code == 201
     body = response.json()
     assert body["id"] > 0
     assert body["email"] == "user@example.com"
-    assert body["role"] == "employee"
+    assert body["role"] == "customer"
 
 
 def test_login_returns_token(tmp_path: Path, monkeypatch) -> None:
@@ -53,7 +53,7 @@ def test_login_returns_token(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         register_response = client.post(
             "/api/v1/auth/register",
-            json={"email": "login@example.com", "password": "secret123", "role": "employee"},
+            json={"email": "login@example.com", "password": "secret123", "role": "customer"},
         )
         assert register_response.status_code == 201
 
@@ -80,7 +80,7 @@ def test_me_returns_current_user(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         register_response = client.post(
             "/api/v1/auth/register",
-            json={"email": "me@example.com", "password": "secret123", "role": "employee"},
+            json={"email": "me@example.com", "password": "secret123", "role": "customer"},
         )
         assert register_response.status_code == 201
 
@@ -99,5 +99,5 @@ def test_me_returns_current_user(tmp_path: Path, monkeypatch) -> None:
     assert me_response.status_code == 200
     me_payload = me_response.json()
     assert me_payload["email"] == "me@example.com"
-    assert me_payload["role"] == "employee"
+    assert me_payload["role"] == "customer"
     assert isinstance(me_payload["id"], int)

@@ -9,6 +9,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     role: str
+    restaurant_id: int | None = None
 
 
 class LoginRequest(BaseModel):
@@ -31,5 +32,6 @@ class AuthUserResponse(BaseModel):
     id: int
     email: str
     role: str
+    restaurant_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)

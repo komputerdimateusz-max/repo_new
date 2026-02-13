@@ -75,11 +75,22 @@ templates: Jinja2Templates = Jinja2Templates(directory=str(base_dir / "frontend"
 templates.env.globals["t"] = t
 app.mount("/static", StaticFiles(directory=str(base_dir / "frontend" / "static")), name="static")
 
-ALLOWED_ROLES: set[str] = {"employee", "company", "catering", "admin"}
+ALLOWED_ROLES: set[str] = {"admin", "customer", "restaurant"}
 
 
-MENU_MANAGER_ROLES: set[str] = {"catering", "admin"}
+MENU_MANAGER_ROLES: set[str] = {"restaurant", "admin"}
 
+
+
+
+def _is_valid_user_scope(user: User) -> bool:
+    if user.role == "restaurant":
+        return user.restaurant_id is not None
+    if user.role == "customer":
+        return user.restaurant_id is None
+    if user.role == "admin":
+        return True
+    return False
 
 def _current_local_datetime() -> datetime:
     """Return current local datetime."""
@@ -150,10 +161,10 @@ def _require_catering_restaurant(user: User, db: Session) -> Restaurant:
     if user.role == "admin":
         return _get_default_restaurant(db)
     if user.restaurant_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Catering user has no restaurant")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user has no restaurant")
     restaurant = db.query(Restaurant).filter(Restaurant.id == user.restaurant_id).first()
     if restaurant is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Catering restaurant not found")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant not found")
     return restaurant
 
 def _forbidden_catering_access(request: Request) -> RedirectResponse:
@@ -325,7 +336,10 @@ def _current_user_from_cookie(request: Request, db: Session) -> User | None:
         payload = verify_token(token)
         user_id_raw: str | int | None = payload.get("sub")
         user_id: int = int(user_id_raw) if user_id_raw is not None else -1
-        return get_user_by_id(db=db, user_id=user_id)
+        user = get_user_by_id(db=db, user_id=user_id)
+        if user is None or not _is_valid_user_scope(user):
+            return None
+        return user
     except (HTTPException, TypeError, ValueError):
         return None
 
@@ -371,8 +385,14 @@ async def login_submit(request: Request) -> HTMLResponse:
                 _template_context(request, error=t("error.invalid_credentials", get_language(request)), message=None),
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
+        if not _is_valid_user_scope(user):
+            return templates.TemplateResponse(
+                "login.html",
+                _template_context(request, error=t("error.invalid_role", get_language(request)), message=None),
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
 
-        token: str = create_access_token(data={"sub": str(user.id)})
+        token: str = create_access_token(data={"sub": str(user.id), "role": user.role, "restaurant_id": user.restaurant_id})
         response: RedirectResponse = RedirectResponse(
             url="/app",
             status_code=status.HTTP_303_SEE_OTHER,
@@ -423,11 +443,22 @@ async def register_submit(request: Request) -> HTMLResponse:
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
+        restaurant_id: int | None = int(restaurant_id_raw) if restaurant_id_raw.isdigit() else None
+        if role == "restaurant" and restaurant_id is None:
+            return templates.TemplateResponse(
+                "register.html",
+                _template_context(request, error="Restaurant users require a restaurant assignment."),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == "customer":
+            restaurant_id = None
+
         create_user(
             db=db,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
+            restaurant_id=restaurant_id,
         )
         success_message: str = t("register.success", get_language(request)).replace(" ", "+")
         return RedirectResponse(
@@ -630,6 +661,8 @@ def _render_order_page(
         user: User | None = _current_user_from_cookie(request, db)
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        if user.role not in {"customer", "admin"}:
+            return _forbidden_catering_access(request)
 
         target_date: date = _parse_horizon_date(selected_date.isoformat() if selected_date else None)
         horizon_dates: list[date] = _order_horizon_dates()
@@ -728,7 +761,7 @@ def settings_page(request: Request, message: str | None = None) -> Response:
             _template_context(
                 request,
                 current_user=user_or_response,
-                current_restaurant=restaurant,
+                current_restaurant=None,
                 users=users,
                 restaurants=restaurants,
                 message=message,
@@ -761,9 +794,9 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
             return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         update_user_role(db=db, user=user, role=role)
-        if role == "catering":
+        if role == "restaurant":
             if not restaurant_id_raw.isdigit():
-                message = "Catering users must be assigned to a restaurant.".replace(" ", "+")
+                message = "Restaurant users must be assigned to a restaurant.".replace(" ", "+")
                 return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
             user.restaurant_id = int(restaurant_id_raw)
             db.add(user)
@@ -807,7 +840,7 @@ def admin_weekly_menu_page(request: Request, message: str | None = None) -> Resp
                 menu_rows=menu_rows,
                 message=message,
                 current_user=user_or_response,
-                current_restaurant=restaurant,
+                current_restaurant=None,
             ),
         )
     finally:
@@ -1010,8 +1043,6 @@ def admin_locations_page(request: Request, message: str | None = None) -> Respon
                 current_user=user_or_response,
                 message=message,
                 locations=locations,
-                restaurants=restaurants,
-                selected_restaurant_id=selected_restaurant_id,
             ),
         )
     finally:
@@ -1054,8 +1085,6 @@ async def admin_locations_create(request: Request) -> Response:
             delivery_time_end=delivery_time_end,
             cutoff_time=cutoff_time,
             is_active=is_active,
-            restaurant_id=restaurant.id,
-            is_standard=is_standard,
         )
         db.add(location)
         db.commit()
@@ -1166,6 +1195,118 @@ async def admin_restaurant_coverage_save(request: Request) -> Response:
     return RedirectResponse(url=f"/admin/restaurant-coverage?restaurant_id={restaurant_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+
+
+@app.get("/restaurant/opening-hours", include_in_schema=False, response_class=HTMLResponse)
+def restaurant_opening_hours_page(request: Request, message: str | None = None, error: str | None = None) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        opening = get_opening_hours_for_restaurant(db, restaurant.id)
+        open_time = opening.ordering_open_time if opening else settings.app_order_open_time
+        close_time = opening.ordering_close_time if opening else settings.app_order_close_time
+        return templates.TemplateResponse(
+            "admin_opening_hours.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                message=message,
+                error=error,
+                restaurants=[restaurant],
+                selected_restaurant_id=restaurant.id,
+                open_time=open_time.strftime("%H:%M"),
+                close_time=close_time.strftime("%H:%M"),
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/restaurant/opening-hours", include_in_schema=False)
+async def restaurant_opening_hours_save(request: Request) -> Response:
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    open_time_raw: str = form_data.get("open_time", [""])[0].strip()
+    close_time_raw: str = form_data.get("close_time", [""])[0].strip()
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        open_time = parse_hhmm_time(open_time_raw)
+        close_time = parse_hhmm_time(close_time_raw)
+        db.query(RestaurantOpeningHours).filter(RestaurantOpeningHours.restaurant_id == restaurant.id).update({"is_active": False})
+        db.add(RestaurantOpeningHours(restaurant_id=restaurant.id, ordering_open_time=open_time, ordering_close_time=close_time, is_active=True))
+        db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(url="/restaurant/opening-hours", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/restaurant/coverage", include_in_schema=False, response_class=HTMLResponse)
+def restaurant_coverage_page(request: Request, message: str | None = None) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        locations = db.query(Location).order_by(Location.company_name.asc()).all()
+        mappings = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id).all()
+        mapping_by_location = {m.location_id: m for m in mappings}
+        return templates.TemplateResponse(
+            "admin_restaurant_coverage.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                restaurants=[restaurant],
+                selected_restaurant_id=restaurant.id,
+                locations=locations,
+                mapping_by_location=mapping_by_location,
+                message=message,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/restaurant/coverage", include_in_schema=False)
+async def restaurant_coverage_save(request: Request) -> Response:
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    location_id_raw = form_data.get("location_id", [""])[0]
+    is_active = form_data.get("is_active", [""])[0] == "on"
+    cut_off = form_data.get("cut_off_time_override", [""])[0].strip()
+    if not location_id_raw.isdigit():
+        return RedirectResponse(url="/restaurant/coverage", status_code=status.HTTP_303_SEE_OTHER)
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        mapping = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id, RestaurantLocation.location_id == int(location_id_raw)).first()
+        if mapping is None:
+            mapping = RestaurantLocation(restaurant_id=restaurant.id, location_id=int(location_id_raw), is_active=is_active)
+            db.add(mapping)
+        else:
+            mapping.is_active = is_active
+        mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
+        db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(url="/restaurant/coverage", status_code=status.HTTP_303_SEE_OTHER)
+
 @app.post("/dev/promote-admin", include_in_schema=False)
 async def dev_promote_admin(request: Request) -> Response:
     """Promote a user to admin in development environment only."""
@@ -1203,6 +1344,8 @@ async def submit_order(request: Request) -> Response:
         user: User | None = _current_user_from_cookie(request, db)
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        if user.role not in {"customer", "admin"}:
+            return _forbidden_catering_access(request)
 
         form_data = parse_qs((await request.body()).decode("utf-8"))
         now: datetime = _current_local_datetime()
@@ -1414,12 +1557,16 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        catalog_item = db.query(CatalogItem).filter(CatalogItem.id == catalog_item_id, CatalogItem.restaurant_id == restaurant.id).first()
+        if catalog_item is None:
+            return RedirectResponse(url="/catering/menu", status_code=status.HTTP_303_SEE_OTHER)
         daily_item: DailyMenuItem | None = (
             db.query(DailyMenuItem)
             .filter(
                 DailyMenuItem.catalog_item_id == catalog_item_id,
                 DailyMenuItem.menu_date == date.today(),
-                DailyMenuItem.restaurant_id == _require_catering_restaurant(user_or_response, db).id,
+                DailyMenuItem.restaurant_id == restaurant.id,
             )
             .first()
         )
@@ -1428,7 +1575,7 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
                 db=db,
                 catalog_item_id=catalog_item_id,
                 menu_date=date.today(),
-                restaurant_id=_require_catering_restaurant(user_or_response, db).id,
+                restaurant_id=restaurant.id,
                 is_active=True,
             )
         else:

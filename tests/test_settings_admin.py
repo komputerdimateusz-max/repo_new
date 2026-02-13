@@ -32,7 +32,7 @@ def test_non_admin_cannot_access_settings(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         client.post(
             "/register",
-            data={"email": "employee@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "employee@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
         client.post(
@@ -91,7 +91,7 @@ def test_admin_can_update_user_role(tmp_path: Path, monkeypatch) -> None:
         )
         client.post(
             "/register",
-            data={"email": "target@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "target@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
         client.post(
@@ -102,7 +102,7 @@ def test_admin_can_update_user_role(tmp_path: Path, monkeypatch) -> None:
 
         update_response = client.post(
             "/settings/users/2/role",
-            data={"role": "catering"},
+            data={"role": "restaurant"},
             follow_redirects=False,
         )
 
@@ -115,4 +115,4 @@ def test_admin_can_update_user_role(tmp_path: Path, monkeypatch) -> None:
         db.close()
 
     assert updated_user is not None
-    assert updated_user.role == "catering"
+    assert updated_user.role == "restaurant"

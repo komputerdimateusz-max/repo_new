@@ -40,7 +40,7 @@ def _seed_ordering_data(testing_session_local: sessionmaker) -> None:
         db.commit()
 
 
-def _register_and_login(client: TestClient, email: str, role: str = "employee") -> None:
+def _register_and_login(client: TestClient, email: str, role: str = "customer") -> None:
     client.post(
         "/register",
         data={"email": email, "password": "secret123", "role": role},
@@ -173,7 +173,7 @@ def test_api_post_order_outside_window_returns_403(tmp_path: Path, monkeypatch) 
     with TestClient(app) as client:
         register_response = client.post(
             "/api/v1/auth/register",
-            json={"email": "apioutside@example.com", "password": "secret123", "role": "employee"},
+            json={"email": "apioutside@example.com", "password": "secret123", "role": "customer"},
         )
         assert register_response.status_code == 201
 

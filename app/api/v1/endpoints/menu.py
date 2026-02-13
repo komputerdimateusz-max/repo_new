@@ -27,7 +27,7 @@ from app.services.menu_service import (
 )
 
 router: APIRouter = APIRouter()
-ALLOWED_MENU_ROLES: set[str] = {"catering", "admin"}
+ALLOWED_MENU_ROLES: set[str] = {"restaurant", "admin"}
 
 
 def _require_menu_role(current_user: User) -> None:
@@ -36,7 +36,9 @@ def _require_menu_role(current_user: User) -> None:
 
 
 def _resolve_restaurant_id(db: Session, current_user: User) -> int:
-    if current_user.role == "catering" and current_user.restaurant_id is not None:
+    if current_user.role == "restaurant":
+        if current_user.restaurant_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user requires restaurant_id")
         return current_user.restaurant_id
     restaurant = db.query(Restaurant).order_by(Restaurant.id.asc()).first()
     if restaurant is None:
@@ -119,7 +121,7 @@ def get_catalog(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[CatalogItem]:
-    """List catalog items for catering/admin."""
+    """List catalog items for restaurant/admin."""
     _require_menu_role(current_user)
     return list_catalog_items(db=db, restaurant_id=_resolve_restaurant_id(db, current_user))
 

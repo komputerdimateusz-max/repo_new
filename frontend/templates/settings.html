@@ -29,7 +29,7 @@
             <td style="padding: 0.5rem;">{{ user.email }}</td>
             <td style="padding: 0.5rem;">
               <select name="role" aria-label="{{ t('settings.column_role', lang) }}">
-                {% for role in ['employee', 'company', 'catering', 'admin'] %}
+                {% for role in ['customer', 'restaurant', 'admin'] %}
                 <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ t('role.' ~ role, lang) }}</option>
                 {% endfor %}
               </select>

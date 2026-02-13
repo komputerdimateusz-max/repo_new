@@ -102,7 +102,7 @@ def test_weekly_menu_enable_standard_and_ordering_flow(tmp_path: Path, monkeypat
         assert force_activation.status_code == 200
 
     with TestClient(app) as employee_client:
-        _register_and_login(employee_client, "weekly-employee@example.com", "employee")
+        _register_and_login(employee_client, "weekly-employee@example.com", "customer")
 
         api_login = employee_client.post(
             "/api/v1/auth/login",

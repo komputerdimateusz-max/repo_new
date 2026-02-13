@@ -121,7 +121,7 @@ def test_startup_migration_prevents_order_items_crash(tmp_path: Path, monkeypatc
             setup_session.refresh(location)
             location_id = location.id
 
-        employee_headers = _auth_headers(client, "employee-migrate@example.com", "employee")
+        employee_headers = _auth_headers(client, "employee-migrate@example.com", "customer")
         order_response = client.post(
             "/api/v1/orders",
             json={"location_id": location_id, "items": [{"catalog_item_id": catalog_id, "quantity": 1}]},

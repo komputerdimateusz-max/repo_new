@@ -15,6 +15,15 @@ from app.models.user import User
 from app.services.user_service import get_user_by_id
 
 pwd_context: CryptContext = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+
+def _validate_user_role_scope(user: User) -> None:
+    if user.role == "restaurant" and user.restaurant_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Restaurant user requires restaurant_id")
+    if user.role == "customer" and user.restaurant_id is not None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Customer user cannot be scoped to restaurant")
+    if user.role not in {"admin", "customer", "restaurant"}:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user role")
 bearer_scheme: HTTPBearer = HTTPBearer(auto_error=True)
 
 
@@ -91,4 +100,5 @@ def get_current_user(
             detail="User not found",
         )
 
+    _validate_user_role_scope(user)
     return user
