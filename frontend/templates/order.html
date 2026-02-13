@@ -27,6 +27,7 @@
   <p class="alert alert-error" role="alert">{{ t('order.cutoff_prompt', lang) }}</p>
   <form method="post" action="/app/order" class="stack-md">
     <input type="hidden" name="location_id" value="{{ selected_location_id }}" />
+    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
     {% for item in menu_items %}
     <input type="hidden" name="qty_{{ item.id }}" value="{{ quantities.get(item.id, 0) }}" />
     {% endfor %}
@@ -40,9 +41,18 @@
 {% endif %}
 
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
+  <form method="get" action="/order" class="stack-md">
+    <label class="field">
+      <span>{{ t('menu.date', lang) }}</span>
+      <input type="date" name="date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
+    </label>
+    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
+  </form>
+
   {% if menu_items %}
     {% if ordering_open %}
   <form method="post" action="/app/order" class="stack-md">
+    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
     <label class="field">
       <span>{{ t('order.select_location', lang) }}</span>
       <select name="location_id" required>
@@ -72,7 +82,7 @@
   <p>{{ t('order.opening_hours.form_disabled', lang) }}</p>
     {% endif %}
   {% else %}
-  <p>{{ t('dashboard.no_menu', lang) }}</p>
+  <p>{{ t('order.empty_for_date', lang) }}</p>
   {% endif %}
 </section>
 
