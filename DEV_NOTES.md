@@ -5,9 +5,9 @@
 2. In **Dashboard → Weekly menu**, choose a future date (within 7 days).
 3. In **Catering menu**, create catalog dishes and mark selected ones as **Standard dish**.
 4. Back in **Weekly menu**, click **Enable standard dishes for this date**.
-5. Sign in as employee and open **Place an Order**.
+5. Sign in as customer and open **Place an Order**.
 6. Select the same date and confirm menu items are visible and can be ordered.
-7. Open **Orders** (catering/admin) and pick the same date to verify totals by location.
+7. Open **Orders** (restaurant/admin) and pick the same date to verify totals by location.
 
 ## Notes
 - Weekly ordering horizon is enforced on backend (`today..today+6`).
@@ -26,3 +26,6 @@
 - Ordering flow now requires both location and restaurant; menu is shown per selected restaurant.
 - Cutoff logic resolves as: `RestaurantLocation.cut_off_time_override` -> `Location.cutoff_time` -> app default.
 - Catering role is scoped to one restaurant via `users.restaurant_id`.
+
+
+Role model: admin, customer, restaurant. Restaurant users must have restaurant_id; customers must not.

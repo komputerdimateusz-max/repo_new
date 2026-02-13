@@ -21,7 +21,7 @@ from app.services.user_service import create_user, get_user_by_email
 
 router: APIRouter = APIRouter()
 
-ALLOWED_ROLES: set[str] = {"employee", "company", "catering", "admin"}
+ALLOWED_ROLES: set[str] = {"admin", "customer", "restaurant"}
 
 
 @router.post("/register", response_model=AuthUserResponse, status_code=status.HTTP_201_CREATED)
@@ -40,11 +40,16 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthUse
             detail="Email already registered",
         )
 
+    restaurant_id: int | None = payload.restaurant_id if payload.role == "restaurant" else None
+    if payload.role == "restaurant" and restaurant_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user requires restaurant_id")
+
     user: User = create_user(
         db=db,
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
         role=payload.role,
+        restaurant_id=restaurant_id,
     )
     return AuthUserResponse.model_validate(user)
 

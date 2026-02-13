@@ -142,6 +142,14 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             user_columns = _sqlite_column_names(connection, "users")
             if "restaurant_id" not in user_columns:
                 connection.execute(text("ALTER TABLE users ADD COLUMN restaurant_id INTEGER"))
+            connection.execute(text("UPDATE users SET role = 'restaurant' WHERE role = 'catering'"))
+            connection.execute(text("UPDATE users SET role = 'customer' WHERE role IN ('employee', 'company', 'user')"))
+            connection.execute(text("UPDATE users SET role = 'customer' WHERE role NOT IN ('admin', 'customer', 'restaurant')"))
+            connection.execute(
+                text("UPDATE users SET restaurant_id = :restaurant_id WHERE role = 'restaurant' AND restaurant_id IS NULL"),
+                {"restaurant_id": default_restaurant_id},
+            )
+            connection.execute(text("UPDATE users SET restaurant_id = NULL WHERE role = 'customer'"))
 
         if "catalog_items" in table_names:
             catalog_columns: set[str] = _sqlite_column_names(connection, "catalog_items")

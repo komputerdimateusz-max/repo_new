@@ -14,7 +14,7 @@
           <a class="text-link" href="/login">{{ t('nav.login', lang) }}</a>
           <a class="text-link" href="/register">{{ t('nav.register', lang) }}</a>
           <a class="text-link" href="/app">{{ t('nav.app', lang) }}</a>
-          {% if current_user and current_user.role in ['catering', 'admin'] %}
+          {% if current_user and current_user.role in ['restaurant', 'admin'] %}
           <a class="text-link" href="/catering/menu">{{ t('nav.catering', lang) }}</a>
           {% endif %}
           {% if current_user and current_user.role == 'admin' %}

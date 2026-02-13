@@ -26,11 +26,15 @@
   <label class="field">
     <span>{{ t('register.role', lang) }}</span>
     <select name="role" required>
-      <option value="employee">{{ t('role.employee', lang) }}</option>
-      <option value="company">{{ t('role.company', lang) }}</option>
-      <option value="catering">{{ t('role.catering', lang) }}</option>
+      <option value="customer">{{ t('role.customer', lang) }}</option>
+      <option value="restaurant">{{ t('role.restaurant', lang) }}</option>
       <option value="admin">{{ t('role.admin', lang) }}</option>
     </select>
+  </label>
+
+  <label class="field">
+    <span>Restaurant ID (required for restaurant role)</span>
+    <input type="number" name="restaurant_id" min="1" />
   </label>
 
   <button type="submit" class="btn btn-primary">{{ t('register.submit', lang) }}</button>

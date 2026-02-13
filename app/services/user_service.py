@@ -15,12 +15,19 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
 
 
-def create_user(db: Session, email: str, hashed_password: str, role: str) -> User:
+def create_user(
+    db: Session,
+    email: str,
+    hashed_password: str,
+    role: str,
+    restaurant_id: int | None = None,
+) -> User:
     """Create and persist a new user."""
     user: User = User(
         email=email,
         hashed_password=hashed_password,
         role=role,
+        restaurant_id=restaurant_id,
     )
     db.add(user)
     db.commit()

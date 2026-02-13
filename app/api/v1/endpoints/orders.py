@@ -11,7 +11,6 @@ from app.models.location import Location
 from app.models.menu import CatalogItem, DailyMenuItem
 from app.models.order import Order, OrderItem
 from app.models.user import User
-from app.core.config import settings
 from app.schemas.order import (
     OrderCreate,
     OrderItemResponse,
@@ -20,9 +19,14 @@ from app.schemas.order import (
     UserOrderResponse,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
-from app.services.settings_service import get_order_window_times, is_within_order_window
 
 router: APIRouter = APIRouter()
+
+
+def _require_customer_or_admin(user: User) -> None:
+    if user.role not in {"customer", "admin"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
 
 
 def _serialize_user_order(order: Order, catalog_items: dict[int, CatalogItem]) -> UserOrderResponse:
@@ -61,15 +65,8 @@ def create_or_replace_order(
     current_user: User = Depends(get_current_user),
 ) -> OrderResponse:
     """Create or replace today's order for the current user."""
+    _require_customer_or_admin(current_user)
     now: datetime = datetime.now()
-    open_time, close_time = get_order_window_times(
-        db,
-        default_open_time=settings.app_order_open_time,
-        default_close_time=settings.app_order_close_time,
-    )
-    if not is_within_order_window(now.time().replace(second=0, microsecond=0), open_time, close_time):
-        raise HTTPException(status_code=403, detail="Ordering is currently closed")
-
     location: Location | None = None
     if payload.location_id is not None:
         location = (
@@ -87,7 +84,7 @@ def create_or_replace_order(
     try:
         target_date: date = resolve_target_order_date(
             now=now,
-            location=location,
+            cutoff_time=location.cutoff_time or now.time().replace(hour=23, minute=59, second=0, microsecond=0),
             order_for_next_day=payload.order_for_next_day,
         )
     except CutoffPassedError as exc:
@@ -161,6 +158,7 @@ def get_my_orders(
     current_user: User = Depends(get_current_user),
 ) -> list[UserOrderResponse]:
     """Return current user's orders for selected date or today."""
+    _require_customer_or_admin(current_user)
     target_date: date = date_value or date.today()
     orders: list[Order] = (
         db.query(Order)

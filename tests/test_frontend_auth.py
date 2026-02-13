@@ -39,7 +39,7 @@ def test_post_register_creates_user_and_redirects(tmp_path: Path, monkeypatch) -
     with TestClient(app) as client:
         response = client.post(
             "/register",
-            data={"email": "newuser@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "newuser@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
 
@@ -62,7 +62,7 @@ def test_post_login_with_valid_credentials_redirects_to_app(
     with TestClient(app) as client:
         register_response = client.post(
             "/register",
-            data={"email": "loginform@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "loginform@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
         assert register_response.status_code == 303

@@ -31,7 +31,7 @@ def test_dashboard_cards_include_expected_links(tmp_path: Path, monkeypatch) -> 
     with TestClient(app) as client:
         register_response = client.post(
             "/register",
-            data={"email": "cards@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "cards@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
         assert register_response.status_code == 303
@@ -99,7 +99,7 @@ def test_menu_orders_billing_pages_load_for_authenticated_user(tmp_path: Path, m
     with TestClient(app) as client:
         register_response = client.post(
             "/register",
-            data={"email": "pages@example.com", "password": "secret123", "role": "employee"},
+            data={"email": "pages@example.com", "password": "secret123", "role": "customer"},
             follow_redirects=False,
         )
         assert register_response.status_code == 303

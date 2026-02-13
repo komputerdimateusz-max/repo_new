@@ -46,7 +46,7 @@ def test_catalog_item_creation_persists(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        headers = _auth_headers(client, "catering@example.com", "catering")
+        headers = _auth_headers(client, "catering@example.com", "restaurant")
         response = client.post(
             "/api/v1/menu/catalog",
             json={"name": "Soup", "description": "Tomato", "price_cents": 1299, "is_active": True},
@@ -105,7 +105,7 @@ def test_catalog_item_can_be_enabled_next_day_without_recreate(tmp_path: Path, m
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        headers = _auth_headers(client, "catering-next@example.com", "catering")
+        headers = _auth_headers(client, "catering-next@example.com", "restaurant")
         catalog_create = client.post(
             "/api/v1/menu/catalog",
             json={"name": "Salad", "description": "Fresh", "price_cents": 1099, "is_active": True},
@@ -158,7 +158,7 @@ def test_post_orders_creates_order_and_get_me_returns_it(tmp_path: Path, monkeyp
             setup_session.refresh(location)
             location_id = location.id
 
-        employee_headers = _auth_headers(client, "employee-order@example.com", "employee")
+        employee_headers = _auth_headers(client, "employee-order@example.com", "customer")
         order_response = client.post(
             "/api/v1/orders",
             json={"location_id": location_id, "items": [{"catalog_item_id": catalog_id, "quantity": 2}]},

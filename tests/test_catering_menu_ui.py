@@ -46,7 +46,7 @@ def test_get_catering_menu_as_employee_is_forbidden(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        _login_with_role(client, "employee-ui@example.com", "employee")
+        _login_with_role(client, "employee-ui@example.com", "customer")
         response = client.get("/catering/menu", follow_redirects=False)
 
     assert response.status_code == 303
@@ -85,7 +85,7 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "catering-ui@example.com", "catering")
+        _login_with_role(client, "catering-ui@example.com", "restaurant")
         response = client.get("/catering/menu")
 
     assert response.status_code == 200
@@ -147,7 +147,7 @@ def test_post_toggle_changes_daily_is_active(tmp_path: Path, monkeypatch) -> Non
         session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "catering-toggle@example.com", "catering")
+        _login_with_role(client, "catering-toggle@example.com", "restaurant")
         response = client.post(
             f"/catering/menu/{catalog_item_id}/toggle",
             follow_redirects=False,
