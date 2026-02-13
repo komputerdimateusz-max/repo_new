@@ -4,14 +4,21 @@
 
 {% block content %}
 <header class="stack-md">
-  <h1>{{ t('dashboard.title', lang) }}</h1>
+  {% if current_user.role == "customer" %}
+  <h1>{{ t('dashboard.title', lang) }} – {{ current_user.username }}</h1>
+  {% elif current_user.role == "restaurant" %}
+  <h1>{{ t('dashboard.title', lang) }} – {{ current_user.restaurant.name }}</h1>
+  {% elif current_user.role == "admin" %}
+  <h1>{{ t('dashboard.title', lang) }} – Administrator</h1>
+  {% endif %}
   <p class="lead">{{ t('dashboard.lead', lang) }}</p>
 </header>
 
-{% if message %}
+{% if message and current_user.role != 'restaurant' %}
 <p class="alert alert-success" role="status">{{ message }}</p>
 {% endif %}
 
+{% if current_user.role == 'customer' %}
 <section class="stack-md" aria-label="{{ t('dashboard.user_actions_label', lang) }}">
   <a href="/order" class="card-link" aria-label="{{ t('dashboard.place_order_tile', lang) }}">
     <div class="card card-primary">
@@ -34,6 +41,7 @@
     </div>
   </a>
 </section>
+{% endif %}
 
 {% if current_user.role in ['admin', 'restaurant'] %}
 <section class="stack-md top-gap-sm" aria-label="{{ t('dashboard.admin_tools', lang) }}">
