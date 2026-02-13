@@ -130,3 +130,30 @@ def test_startup_migration_prevents_order_items_crash(tmp_path: Path, monkeypatc
 
     assert catalog_response.status_code == 201
     assert order_response.status_code == 200
+
+
+def test_ensure_sqlite_schema_adds_order_status_columns(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_orders_status.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE orders SET status = 'created'"))
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        rows = connection.execute(text("PRAGMA table_info(orders);"))
+        columns = {str(row[1]) for row in rows}
+        migrated_statuses = {
+            str(row[0])
+            for row in connection.execute(text("SELECT DISTINCT status FROM orders"))
+            if row[0] is not None
+        }
+
+    assert "status" in columns
+    assert "status_updated_at" in columns
+    assert "confirmed_at" in columns
+    assert "prepared_at" in columns
+    assert "delivered_at" in columns
+    assert "cancelled_at" in columns
+    assert "created" not in migrated_statuses

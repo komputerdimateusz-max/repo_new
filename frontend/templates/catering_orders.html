@@ -20,10 +20,26 @@
           <span>{{ t('menu.date', lang) }}</span>
           <input class="input" type="date" name="date" value="{{ selected_date.isoformat() }}" />
         </label>
+        <label class="field">
+          <span>Status</span>
+          <select class="input" name="status">
+            <option value="all" {% if selected_status == 'all' %}selected{% endif %}>All</option>
+            {% for status in order_statuses %}
+            <option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>{{ status|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <button type="submit" class="btn btn--secondary">{{ t('menu.load_date', lang) }}</button>
       </form>
     </div>
   </section>
+
+  {% if message %}
+  <p class="alert alert-success" role="status">{{ message }}</p>
+  {% endif %}
+  {% if error %}
+  <p class="alert alert-error" role="alert">{{ error }}</p>
+  {% endif %}
 
   <section class="section">
     <h2 class="section-title">{{ t('catering_orders.summary_title', lang) }}</h2>
@@ -71,6 +87,8 @@
               <th>{{ t('catering_orders.column_user_email', lang) }}</th>
               <th>{{ t('catering_orders.column_items', lang) }}</th>
               <th>{{ t('catering_orders.column_total', lang) }}</th>
+              <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -80,6 +98,41 @@
               <td>{{ row.user_email }}</td>
               <td>{{ row.total_items }}</td>
               <td>{{ '%.2f'|format(row.total_cents / 100) }} PLN</td>
+              <td><span class="pill">{{ row.status|capitalize }}</span></td>
+              <td>
+                {% if row.status == 'pending' %}
+                  {% for next_status in ['confirmed', 'cancelled'] %}
+                  <form method="post" action="/restaurant/orders/{{ row.order_id }}/status" style="display:inline-block; margin: 0 4px 4px 0;">
+                    <input type="hidden" name="new_status" value="{{ next_status }}" />
+                    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+                    <input type="hidden" name="selected_status" value="{{ selected_status }}" />
+                    <button type="submit" class="btn btn--secondary">
+                      {% if next_status == 'confirmed' %}Confirm{% else %}Cancel{% endif %}
+                    </button>
+                  </form>
+                  {% endfor %}
+                {% elif row.status == 'confirmed' %}
+                  {% for next_status in ['prepared', 'cancelled'] %}
+                  <form method="post" action="/restaurant/orders/{{ row.order_id }}/status" style="display:inline-block; margin: 0 4px 4px 0;">
+                    <input type="hidden" name="new_status" value="{{ next_status }}" />
+                    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+                    <input type="hidden" name="selected_status" value="{{ selected_status }}" />
+                    <button type="submit" class="btn btn--secondary">
+                      {% if next_status == 'prepared' %}Mark prepared{% else %}Cancel{% endif %}
+                    </button>
+                  </form>
+                  {% endfor %}
+                {% elif row.status == 'prepared' %}
+                  <form method="post" action="/restaurant/orders/{{ row.order_id }}/status" style="display:inline-block; margin: 0 4px 4px 0;">
+                    <input type="hidden" name="new_status" value="delivered" />
+                    <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+                    <input type="hidden" name="selected_status" value="{{ selected_status }}" />
+                    <button type="submit" class="btn btn--secondary">Mark delivered</button>
+                  </form>
+                {% else %}
+                  <span class="muted">No actions</span>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
