@@ -49,6 +49,12 @@ def is_ordering_open(db: Session, restaurant_id: int, now_value: time) -> tuple[
     return open_time <= now_value < close_time, open_time, close_time
 
 
+def is_ordering_open_for_restaurant(db: Session, restaurant_id: int, now_value: time) -> bool:
+    """Return whether a specific restaurant is currently accepting orders."""
+    is_open, _, _ = is_ordering_open(db, restaurant_id, now_value)
+    return is_open
+
+
 def get_effective_cutoff(db: Session, restaurant_id: int, location_id: int, location: Location | None = None) -> time:
     """Return per-restaurant/location cutoff override or fallback location/default cutoff."""
     mapping = (
