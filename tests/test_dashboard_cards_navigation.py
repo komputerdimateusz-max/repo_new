@@ -151,3 +151,88 @@ def test_top_nav_hides_register_for_authenticated_user(tmp_path: Path, monkeypat
     assert 'href="/register"' not in response.text
     assert 'href="/login"' not in response.text
     assert 'href="/logout"' in response.text
+
+
+def test_restaurant_dashboard_hides_ordering_tiles_and_shows_restaurant_name(tmp_path: Path, monkeypatch) -> None:
+    """Restaurant dashboard should render only restaurant management area."""
+    engine = _build_test_engine(tmp_path / "test_dashboard_restaurant_links.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    from app.models.restaurant import Restaurant
+
+    with testing_session_local() as db:
+        restaurant = Restaurant(name="Bistro 77", is_active=True)
+        db.add(restaurant)
+        db.commit()
+        db.refresh(restaurant)
+        restaurant_id = restaurant.id
+
+    with TestClient(app) as client:
+        register_response = client.post(
+            "/register",
+            data={"email": "restaurant@example.com", "password": "secret123", "role": "restaurant", "restaurant_id": str(restaurant_id)},
+            follow_redirects=False,
+        )
+        assert register_response.status_code == 303
+
+        login_response = client.post(
+            "/login",
+            data={"email": "restaurant@example.com", "password": "secret123"},
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+
+        response = client.get("/app")
+
+    assert response.status_code == 200
+    assert "Dashboard – Bistro 77" in response.text
+    assert 'href="/order"' not in response.text
+    assert 'href="/menu"' not in response.text
+    assert 'href="/orders"' not in response.text
+    assert "Nie masz dostępu do menu cateringu." not in response.text
+    assert 'href="/catering/menu"' in response.text
+    assert 'href="/catering/orders"' in response.text
+    assert 'href="/restaurant/opening-hours"' in response.text
+    assert 'href="/restaurant/coverage"' in response.text
+
+
+def test_dashboard_header_varies_by_role(tmp_path: Path, monkeypatch) -> None:
+    """Dashboard header should include role-aware identity text."""
+    engine = _build_test_engine(tmp_path / "test_dashboard_headers.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    from app.models.restaurant import Restaurant
+
+    with testing_session_local() as db:
+        restaurant = Restaurant(name="Header Place", is_active=True)
+        db.add(restaurant)
+        db.commit()
+        db.refresh(restaurant)
+        restaurant_id = restaurant.id
+
+    with TestClient(app) as client:
+        client.post("/register", data={"email": "headcustomer@example.com", "password": "secret123", "role": "customer"}, follow_redirects=False)
+        client.post("/login", data={"email": "headcustomer@example.com", "password": "secret123"}, follow_redirects=False)
+        customer_response = client.get("/app")
+        client.get("/logout", follow_redirects=False)
+
+        client.post("/register", data={"email": "headrestaurant@example.com", "password": "secret123", "role": "restaurant", "restaurant_id": str(restaurant_id)}, follow_redirects=False)
+        client.post("/login", data={"email": "headrestaurant@example.com", "password": "secret123"}, follow_redirects=False)
+        restaurant_response = client.get("/app")
+        client.get("/logout", follow_redirects=False)
+
+        client.post("/register", data={"email": "headadmin@example.com", "password": "secret123", "role": "admin"}, follow_redirects=False)
+        client.post("/login", data={"email": "headadmin@example.com", "password": "secret123"}, follow_redirects=False)
+        admin_response = client.get("/app")
+
+    assert "Dashboard – headcustomer" in customer_response.text
+    assert "Dashboard – Header Place" in restaurant_response.text
+    assert "Dashboard – Administrator" in admin_response.text
