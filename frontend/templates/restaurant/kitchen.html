@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | Kitchen Mode{% endblock %}
+
+{% block content %}
+<div class="page-container kitchen-page">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">Kitchen Mode</h1>
+      <p class="page-subtitle">Production list for confirmed and prepared orders.</p>
+    </div>
+    <span class="pill pill--accent">Restaurant</span>
+  </header>
+
+  <section class="section">
+    <form method="get" action="/restaurant/kitchen" class="kitchen-controls">
+      <label class="field">
+        <span>Date</span>
+        <input class="input" type="date" name="date" value="{{ selected_date.isoformat() }}" />
+      </label>
+      <input type="hidden" name="mode" value="{{ selected_mode }}" />
+      <label class="kitchen-autorefresh">
+        <input type="checkbox" name="auto_refresh" value="1" {% if auto_refresh %}checked{% endif %} />
+        Auto-refresh every 30s
+      </label>
+      <button class="btn btn--secondary" type="submit">Apply</button>
+      <button class="btn" type="button" onclick="window.print()">Print</button>
+    </form>
+
+    <div class="kitchen-mode-toggle" role="tablist" aria-label="Kitchen mode selector">
+      <a class="btn {% if selected_mode == 'aggregate' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=aggregate{% if auto_refresh %}&auto_refresh=1{% endif %}">Aggregate</a>
+      <a class="btn {% if selected_mode == 'detailed' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=detailed{% if auto_refresh %}&auto_refresh=1{% endif %}">Detailed</a>
+    </div>
+  </section>
+
+  <section class="section">
+    {% if selected_mode == 'aggregate' %}
+      {% if aggregate_rows %}
+      <div class="table-wrap">
+        <table class="simple-table kitchen-table">
+          <thead>
+            <tr>
+              <th>DISH NAME</th>
+              <th>TOTAL QUANTITY</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in aggregate_rows %}
+            <tr>
+              <td class="kitchen-dish">{{ row.dish_name }}</td>
+              <td>{{ row.total_quantity }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="kitchen-empty">No confirmed orders for this date.</p>
+      {% endif %}
+    {% else %}
+      {% if detailed_rows %}
+      <div class="table-wrap">
+        <table class="simple-table kitchen-table">
+          <thead>
+            <tr>
+              <th>DISH</th>
+              <th>QUANTITY</th>
+              <th>LOCATION</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in detailed_rows %}
+            <tr {% if row.prepared_quantity > 0 %}class="kitchen-prepared"{% endif %}>
+              <td class="kitchen-dish">{{ row.dish_name }}</td>
+              <td>{{ row.quantity }}</td>
+              <td>{{ row.location_name }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="kitchen-empty">No confirmed orders for this date.</p>
+      {% endif %}
+    {% endif %}
+  </section>
+</div>
+
+{% if auto_refresh %}
+<script>
+  setTimeout(function () {
+    window.location.reload();
+  }, 30000);
+</script>
+{% endif %}
+
+<style>
+  .kitchen-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .kitchen-mode-toggle { display: flex; gap: 8px; margin-top: 12px; }
+  .kitchen-table td, .kitchen-table th { font-size: 18px; }
+  .kitchen-dish { font-size: 20px; font-weight: 700; }
+  .kitchen-empty { font-size: 20px; font-weight: 600; }
+  .kitchen-prepared { background: #ecfdf5; }
+  .kitchen-autorefresh { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  @media print {
+    nav, .kitchen-controls, .kitchen-mode-toggle { display: none !important; }
+    .kitchen-page { margin: 0; }
+  }
+</style>
+{% endblock %}
