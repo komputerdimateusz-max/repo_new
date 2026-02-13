@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
 from app.models.location import Location
+from app.models.app_setting import AppSetting
 
 
 def _build_test_engine(db_file: Path) -> Engine:
@@ -151,6 +152,8 @@ def test_post_orders_creates_order_and_get_me_returns_it(tmp_path: Path, monkeyp
         with testing_session_local() as setup_session:
             location = Location(company_name="Api Co", address="Api Street", is_active=True, cutoff_time=time(23, 59))
             setup_session.add(location)
+            setup_session.add(AppSetting(key="ordering_open_time", value="00:00"))
+            setup_session.add(AppSetting(key="ordering_close_time", value="23:59"))
             setup_session.commit()
             setup_session.refresh(location)
             location_id = location.id

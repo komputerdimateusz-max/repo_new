@@ -34,6 +34,12 @@ from app.services.menu_service import (
     toggle_menu_item_active,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
+from app.services.settings_service import (
+    get_order_window_times,
+    is_within_order_window,
+    parse_hhmm_time,
+    save_order_window_times,
+)
 from app.services.user_service import (
     count_admin_users,
     create_user,
@@ -60,6 +66,34 @@ def _current_local_datetime() -> datetime:
     """Return current local datetime."""
     return datetime.now()
 
+
+
+
+def _current_local_time() -> time:
+    """Return current local time."""
+    return _current_local_datetime().time().replace(second=0, microsecond=0)
+
+
+def _get_order_window_times(db: Session) -> tuple[time, time]:
+    """Return configured order opening window with config fallback."""
+    return get_order_window_times(
+        db,
+        default_open_time=settings.app_order_open_time,
+        default_close_time=settings.app_order_close_time,
+    )
+
+
+def _is_ordering_open_now(db: Session, now_time: time | None = None) -> tuple[bool, time, time]:
+    """Check if ordering is open at the current local time."""
+    open_time, close_time = _get_order_window_times(db)
+    current_time: time = now_time or _current_local_time()
+    return is_within_order_window(current_time, open_time, close_time), open_time, close_time
+
+
+def _next_order_window_open_message(request: Request, open_time: time) -> str:
+    """Build user-friendly next opening message."""
+    open_time_display: str = open_time.strftime("%H:%M")
+    return t("order.opening_hours.next_open", get_language(request)).format(time=open_time_display)
 
 def _forbidden_catering_access(request: Request) -> RedirectResponse:
     """Redirect non-catering users back to dashboard with localized error."""
@@ -530,6 +564,11 @@ def _render_order_page(
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
+        ordering_open, open_time, close_time = _is_ordering_open_now(db)
+        next_opening_message: str | None = None
+        if not ordering_open:
+            next_opening_message = _next_order_window_open_message(request, open_time)
+
         today: date = date.today()
         menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
         locations: list[Location] = (
@@ -549,6 +588,11 @@ def _render_order_page(
                 selected_location_id=selected_location_id,
                 quantities=quantities or {},
                 current_user=user,
+                ordering_open=ordering_open,
+                ordering_open_time=open_time.strftime("%H:%M"),
+                ordering_close_time=close_time.strftime("%H:%M"),
+                ordering_closed_message=t("order.opening_hours.closed", get_language(request)),
+                next_opening_message=next_opening_message,
             ),
         )
     finally:
@@ -622,6 +666,77 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
 
     message = t("settings.success.role_updated", get_language(request)).replace(" ", "+")
     return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/opening-hours", include_in_schema=False, response_class=HTMLResponse)
+def admin_opening_hours_page(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+) -> Response:
+    """Render ordering opening hours settings for admin users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        open_time, close_time = _get_order_window_times(db)
+        return templates.TemplateResponse(
+            "admin_opening_hours.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                message=message,
+                error=error,
+                open_time=open_time.strftime("%H:%M"),
+                close_time=close_time.strftime("%H:%M"),
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/opening-hours", include_in_schema=False)
+async def admin_opening_hours_save(request: Request) -> Response:
+    """Persist ordering opening hours settings."""
+    lang: str = get_language(request)
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    open_time_raw: str = form_data.get("open_time", [""])[0].strip()
+    close_time_raw: str = form_data.get("close_time", [""])[0].strip()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        try:
+            open_time = parse_hhmm_time(open_time_raw)
+            close_time = parse_hhmm_time(close_time_raw)
+        except ValueError:
+            error = t("opening_hours.error.invalid_time", lang).replace(" ", "+")
+            return RedirectResponse(
+                url=f"/admin/opening-hours?error={error}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        if open_time >= close_time:
+            error = t("opening_hours.error.invalid_window", lang).replace(" ", "+")
+            return RedirectResponse(
+                url=f"/admin/opening-hours?error={error}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        save_order_window_times(db, open_time=open_time, close_time=close_time)
+    finally:
+        db.close()
+
+    message = t("opening_hours.success.saved", lang).replace(" ", "+")
+    return RedirectResponse(
+        url=f"/admin/opening-hours?message={message}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get("/admin/locations", include_in_schema=False, response_class=HTMLResponse)
@@ -753,6 +868,28 @@ async def submit_order(request: Request) -> Response:
 
         form_data = parse_qs((await request.body()).decode("utf-8"))
         now: datetime = _current_local_datetime()
+        ordering_open, open_time, close_time = _is_ordering_open_now(db, now.time().replace(second=0, microsecond=0))
+        if not ordering_open:
+            return templates.TemplateResponse(
+                "order.html",
+                _template_context(
+                    request,
+                    error=t("order.opening_hours.closed", lang),
+                    cutoff_prompt=False,
+                    selected_location_id=None,
+                    quantities={},
+                    current_user=user,
+                    menu_items=[],
+                    locations=[],
+                    ordering_open=False,
+                    ordering_open_time=open_time.strftime("%H:%M"),
+                    ordering_close_time=close_time.strftime("%H:%M"),
+                    ordering_closed_message=t("order.opening_hours.closed", lang),
+                    next_opening_message=_next_order_window_open_message(request, open_time),
+                ),
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
         location_id_raw: str = form_data.get("location_id", [""])[0].strip()
         quantities: dict[int, int] = _parse_quantities(form_data)
         if not location_id_raw:
