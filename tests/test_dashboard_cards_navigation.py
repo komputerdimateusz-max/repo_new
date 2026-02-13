@@ -84,6 +84,7 @@ def test_dashboard_shows_admin_links_for_admin_role(tmp_path: Path, monkeypatch)
     assert 'href="/catering/menu"' in response.text
     assert 'href="/admin/locations"' in response.text
     assert 'href="/catering/orders"' in response.text
+    assert 'href="/admin/opening-hours"' in response.text
 
 
 def test_menu_orders_billing_pages_load_for_authenticated_user(tmp_path: Path, monkeypatch) -> None:

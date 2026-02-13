@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('opening_hours.title', lang) }} · repo_new{% endblock %}
+
+{% block content %}
+<section class="stack-md">
+  <h1>{{ t('opening_hours.title', lang) }}</h1>
+  <p>{{ t('opening_hours.description', lang) }}</p>
+
+  {% if message %}
+  <p class="alert alert-success" role="status">{{ message }}</p>
+  {% endif %}
+
+  {% if error %}
+  <p class="alert alert-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <p>{{ t('opening_hours.current_window', lang).format(open_time=open_time, close_time=close_time) }}</p>
+
+  <form method="post" action="/admin/opening-hours" class="stack-md">
+    <label class="field">
+      <span>{{ t('opening_hours.open_time', lang) }}</span>
+      <input type="time" name="open_time" value="{{ open_time }}" required />
+    </label>
+
+    <label class="field">
+      <span>{{ t('opening_hours.close_time', lang) }}</span>
+      <input type="time" name="close_time" value="{{ close_time }}" required />
+    </label>
+
+    <button type="submit" class="btn btn-primary">{{ t('opening_hours.save', lang) }}</button>
+  </form>
+</section>
+{% endblock %}

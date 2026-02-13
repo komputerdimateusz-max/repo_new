@@ -12,6 +12,16 @@
 <p class="alert alert-error" role="alert">{{ error }}</p>
 {% endif %}
 
+{% if not ordering_open %}
+<section class="card stack-md" aria-label="{{ t('order.opening_hours.title', lang) }}">
+  <p class="alert alert-error" role="alert">{{ ordering_closed_message }}</p>
+  <p>{{ t('order.opening_hours.window', lang).format(open_time=ordering_open_time, close_time=ordering_close_time) }}</p>
+  {% if next_opening_message %}
+  <p>{{ next_opening_message }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if cutoff_prompt %}
 <section class="card stack-md" aria-label="Cut-off warning">
   <p class="alert alert-error" role="alert">{{ t('order.cutoff_prompt', lang) }}</p>
@@ -31,6 +41,7 @@
 
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
   {% if menu_items %}
+    {% if ordering_open %}
   <form method="post" action="/app/order" class="stack-md">
     <label class="field">
       <span>{{ t('order.select_location', lang) }}</span>
@@ -57,6 +68,9 @@
     {% endfor %}
     <button type="submit" class="btn btn-primary">{{ t('dashboard.place_order', lang) }}</button>
   </form>
+    {% else %}
+  <p>{{ t('order.opening_hours.form_disabled', lang) }}</p>
+    {% endif %}
   {% else %}
   <p>{{ t('dashboard.no_menu', lang) }}</p>
   {% endif %}

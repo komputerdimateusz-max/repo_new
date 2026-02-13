@@ -22,6 +22,8 @@ class Settings(BaseModel):
     admin_password: str = getenv("ADMIN_PASSWORD", "Admin123!")
     admin_role: str = getenv("ADMIN_ROLE", "admin")
     app_default_cutoff_time: time = time.fromisoformat(getenv("APP_DEFAULT_CUTOFF_TIME", "10:00"))
+    app_order_open_time: time = time.fromisoformat(getenv("APP_ORDER_OPEN_TIME", "06:00"))
+    app_order_close_time: time = time.fromisoformat(getenv("APP_ORDER_CLOSE_TIME", "23:00"))
 
 
 settings: Settings = Settings()
