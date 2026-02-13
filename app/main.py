@@ -24,7 +24,17 @@ from app.db import session as db_session
 from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_admin_user
 from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
-from app.models import CatalogItem, DailyMenuItem, Location, Order, OrderItem, User
+from app.models import (
+    CatalogItem,
+    DailyMenuItem,
+    Location,
+    Order,
+    OrderItem,
+    Restaurant,
+    RestaurantLocation,
+    RestaurantOpeningHours,
+    User,
+)
 from app.services.menu_service import (
     activate_catalog_item_for_date,
     copy_menu,
@@ -36,6 +46,13 @@ from app.services.menu_service import (
     toggle_menu_item_active,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
+from app.services.restaurant_service import (
+    get_active_restaurants_for_location,
+    get_effective_cutoff,
+    get_opening_hours_for_restaurant,
+    is_ordering_open,
+    validate_restaurant_delivers_to_location,
+)
 from app.services.settings_service import (
     get_order_window_times,
     is_within_order_window,
@@ -117,6 +134,27 @@ def _next_order_window_open_message(request: Request, open_time: time) -> str:
     """Build user-friendly next opening message."""
     open_time_display: str = open_time.strftime("%H:%M")
     return t("order.opening_hours.next_open", get_language(request)).format(time=open_time_display)
+
+
+def _get_default_restaurant(db: Session) -> Restaurant:
+    restaurant: Restaurant | None = db.query(Restaurant).order_by(Restaurant.id.asc()).first()
+    if restaurant is None:
+        restaurant = Restaurant(name="Default Restaurant", is_active=True)
+        db.add(restaurant)
+        db.commit()
+        db.refresh(restaurant)
+    return restaurant
+
+
+def _require_catering_restaurant(user: User, db: Session) -> Restaurant:
+    if user.role == "admin":
+        return _get_default_restaurant(db)
+    if user.restaurant_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Catering user has no restaurant")
+    restaurant = db.query(Restaurant).filter(Restaurant.id == user.restaurant_id).first()
+    if restaurant is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Catering restaurant not found")
+    return restaurant
 
 def _forbidden_catering_access(request: Request) -> RedirectResponse:
     """Redirect non-catering users back to dashboard with localized error."""
@@ -252,9 +290,9 @@ def _parse_menu_price_to_cents(price_raw: str) -> int:
     return int(cents)
 
 
-def _list_catalog_items_for_date(db: Session, target_date: date) -> list[CatalogItem]:
-    """Return catalog dishes that are enabled for the selected day."""
-    daily_rows: list[DailyMenuItem] = get_menu_for_date(db=db, target_date=target_date)
+def _list_catalog_items_for_date(db: Session, target_date: date, restaurant_id: int) -> list[CatalogItem]:
+    """Return catalog dishes that are enabled for the selected day and restaurant."""
+    daily_rows: list[DailyMenuItem] = get_menu_for_date(db=db, target_date=target_date, restaurant_id=restaurant_id)
     return [row.catalog_item for row in daily_rows]
 
 
@@ -366,6 +404,7 @@ async def register_submit(request: Request) -> HTMLResponse:
     email: str = form_data.get("email", [""])[0]
     password: str = form_data.get("password", [""])[0]
     role: str = form_data.get("role", [""])[0]
+    restaurant_id_raw: str = form_data.get("restaurant_id", [""])[0].strip()
 
     if role not in ALLOWED_ROLES:
         return templates.TemplateResponse(
@@ -409,7 +448,8 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today)
+        restaurant = _get_default_restaurant(db)
+        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today, restaurant_id=restaurant.id)
 
         order: Order | None = (
             db.query(Order)
@@ -471,7 +511,8 @@ def menu_page(request: Request) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today)
+        restaurant = _get_default_restaurant(db)
+        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today, restaurant_id=restaurant.id)
 
         return templates.TemplateResponse(
             "menu.html",
@@ -580,6 +621,7 @@ def _render_order_page(
     selected_date: date | None = None,
     cutoff_prompt: bool = False,
     selected_location_id: int | None = None,
+    selected_restaurant_id: int | None = None,
     quantities: dict[int, int] | None = None,
 ) -> HTMLResponse:
     """Render order page with optional cut-off prompt state."""
@@ -589,32 +631,57 @@ def _render_order_page(
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
-        ordering_open, open_time, close_time = _is_ordering_open_now(db)
-        next_opening_message: str | None = None
-        if not ordering_open:
-            next_opening_message = _next_order_window_open_message(request, open_time)
-
         target_date: date = _parse_horizon_date(selected_date.isoformat() if selected_date else None)
-        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=target_date)
         horizon_dates: list[date] = _order_horizon_dates()
+
         locations: list[Location] = (
             db.query(Location)
             .filter(Location.is_active.is_(True))
             .order_by(Location.company_name.asc(), Location.address.asc())
             .all()
         )
+
+        if selected_location_id is None:
+            location_param = request.query_params.get("location_id")
+            if location_param and location_param.isdigit():
+                selected_location_id = int(location_param)
+
+        if selected_restaurant_id is None:
+            restaurant_param = request.query_params.get("restaurant_id")
+            if restaurant_param and restaurant_param.isdigit():
+                selected_restaurant_id = int(restaurant_param)
+
+        restaurants: list[Restaurant] = []
+        if selected_location_id is not None:
+            restaurants = get_active_restaurants_for_location(db, selected_location_id)
+            if selected_restaurant_id is None and restaurants:
+                selected_restaurant_id = restaurants[0].id
+
+        menu_items: list[CatalogItem] = []
+        ordering_open: bool = False
+        open_time: time = settings.app_order_open_time
+        close_time: time = settings.app_order_close_time
+        next_opening_message: str | None = None
+        if selected_restaurant_id is not None:
+            ordering_open, open_time, close_time = is_ordering_open(db, selected_restaurant_id, _current_local_time())
+            menu_items = _list_catalog_items_for_date(db=db, target_date=target_date, restaurant_id=selected_restaurant_id)
+            if not ordering_open:
+                next_opening_message = _next_order_window_open_message(request, open_time)
+
         return templates.TemplateResponse(
             "order.html",
             _template_context(
                 request,
                 menu_items=menu_items,
                 locations=locations,
+                restaurants=restaurants,
                 error=error,
                 selected_date=target_date,
                 min_date=horizon_dates[0],
                 max_date=horizon_dates[-1],
                 cutoff_prompt=cutoff_prompt,
                 selected_location_id=selected_location_id,
+                selected_restaurant_id=selected_restaurant_id,
                 quantities=quantities or {},
                 current_user=user,
                 ordering_open=ordering_open,
@@ -655,12 +722,15 @@ def settings_page(request: Request, message: str | None = None) -> Response:
             return user_or_response
 
         users: list[User] = list_users(db=db)
+        restaurants: list[Restaurant] = db.query(Restaurant).order_by(Restaurant.name.asc()).all()
         return templates.TemplateResponse(
             "settings.html",
             _template_context(
                 request,
                 current_user=user_or_response,
+                current_restaurant=restaurant,
                 users=users,
+                restaurants=restaurants,
                 message=message,
             ),
         )
@@ -673,6 +743,7 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
     """Update selected user role from admin settings form."""
     form_data = parse_qs((await request.body()).decode("utf-8"))
     role: str = form_data.get("role", [""])[0]
+    restaurant_id_raw: str = form_data.get("restaurant_id", [""])[0].strip()
 
     db: Session = db_session.SessionLocal()
     try:
@@ -690,6 +761,17 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
             return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         update_user_role(db=db, user=user, role=role)
+        if role == "catering":
+            if not restaurant_id_raw.isdigit():
+                message = "Catering users must be assigned to a restaurant.".replace(" ", "+")
+                return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+            user.restaurant_id = int(restaurant_id_raw)
+            db.add(user)
+            db.commit()
+        elif user.restaurant_id is not None:
+            user.restaurant_id = None
+            db.add(user)
+            db.commit()
     finally:
         db.close()
 
@@ -709,11 +791,11 @@ def admin_weekly_menu_page(request: Request, message: str | None = None) -> Resp
 
         catalog_items: list[CatalogItem] = (
             db.query(CatalogItem)
-            .filter(CatalogItem.is_active.is_(True))
+            .filter(CatalogItem.is_active.is_(True), CatalogItem.restaurant_id == _get_default_restaurant(db).id)
             .order_by(CatalogItem.name.asc())
             .all()
         )
-        menu_rows: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        menu_rows: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date, restaurant_id=_get_default_restaurant(db).id)
         return templates.TemplateResponse(
             "weekly_menu.html",
             _template_context(
@@ -725,6 +807,7 @@ def admin_weekly_menu_page(request: Request, message: str | None = None) -> Resp
                 menu_rows=menu_rows,
                 message=message,
                 current_user=user_or_response,
+                current_restaurant=restaurant,
             ),
         )
     finally:
@@ -753,6 +836,7 @@ async def admin_weekly_menu_add(request: Request) -> Response:
             db=db,
             catalog_item_id=catalog_item_id,
             menu_date=selected_date,
+            restaurant_id=_get_default_restaurant(db).id,
             is_active=True,
         )
     finally:
@@ -793,7 +877,7 @@ async def admin_weekly_menu_enable_standard(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        enable_standard_for_date(db=db, target_date=selected_date)
+        enable_standard_for_date(db=db, target_date=selected_date, restaurant_id=_get_default_restaurant(db).id)
     finally:
         db.close()
 
@@ -813,7 +897,7 @@ async def admin_weekly_menu_copy(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        copy_menu(db=db, from_date=from_date, to_date=selected_date)
+        copy_menu(db=db, from_date=from_date, to_date=selected_date, restaurant_id=_get_default_restaurant(db).id)
     finally:
         db.close()
 
@@ -826,14 +910,24 @@ def admin_opening_hours_page(
     message: str | None = None,
     error: str | None = None,
 ) -> Response:
-    """Render ordering opening hours settings for admin users."""
+    """Render ordering opening hours settings per restaurant for admin users."""
     db: Session = db_session.SessionLocal()
     try:
         user_or_response = _require_admin_user(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        open_time, close_time = _get_order_window_times(db)
+        restaurants: list[Restaurant] = db.query(Restaurant).order_by(Restaurant.name.asc()).all()
+        selected_restaurant_id = request.query_params.get("restaurant_id")
+        restaurant: Restaurant = restaurants[0] if restaurants else _get_default_restaurant(db)
+        if selected_restaurant_id and selected_restaurant_id.isdigit():
+            picked = db.query(Restaurant).filter(Restaurant.id == int(selected_restaurant_id)).first()
+            if picked is not None:
+                restaurant = picked
+
+        opening = get_opening_hours_for_restaurant(db, restaurant.id)
+        open_time = opening.ordering_open_time if opening else settings.app_order_open_time
+        close_time = opening.ordering_close_time if opening else settings.app_order_close_time
         return templates.TemplateResponse(
             "admin_opening_hours.html",
             _template_context(
@@ -841,6 +935,8 @@ def admin_opening_hours_page(
                 current_user=user_or_response,
                 message=message,
                 error=error,
+                restaurants=restaurants,
+                selected_restaurant_id=restaurant.id,
                 open_time=open_time.strftime("%H:%M"),
                 close_time=close_time.strftime("%H:%M"),
             ),
@@ -856,6 +952,7 @@ async def admin_opening_hours_save(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     open_time_raw: str = form_data.get("open_time", [""])[0].strip()
     close_time_raw: str = form_data.get("close_time", [""])[0].strip()
+    restaurant_id_raw: str = form_data.get("restaurant_id", [""])[0].strip()
 
     db: Session = db_session.SessionLocal()
     try:
@@ -863,30 +960,35 @@ async def admin_opening_hours_save(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
+        if not restaurant_id_raw.isdigit():
+            return RedirectResponse(url="/admin/opening-hours", status_code=status.HTTP_303_SEE_OTHER)
+
         try:
             open_time = parse_hhmm_time(open_time_raw)
             close_time = parse_hhmm_time(close_time_raw)
         except ValueError:
             error = t("opening_hours.error.invalid_time", lang).replace(" ", "+")
             return RedirectResponse(
-                url=f"/admin/opening-hours?error={error}",
+                url=f"/admin/opening-hours?error={error}&restaurant_id={restaurant_id_raw}",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
 
-        if open_time >= close_time:
-            error = t("opening_hours.error.invalid_window", lang).replace(" ", "+")
-            return RedirectResponse(
-                url=f"/admin/opening-hours?error={error}",
-                status_code=status.HTTP_303_SEE_OTHER,
+        db.query(RestaurantOpeningHours).filter(RestaurantOpeningHours.restaurant_id == int(restaurant_id_raw)).update({"is_active": False})
+        db.add(
+            RestaurantOpeningHours(
+                restaurant_id=int(restaurant_id_raw),
+                ordering_open_time=open_time,
+                ordering_close_time=close_time,
+                is_active=True,
             )
-
-        save_order_window_times(db, open_time=open_time, close_time=close_time)
+        )
+        db.commit()
     finally:
         db.close()
 
     message = t("opening_hours.success.saved", lang).replace(" ", "+")
     return RedirectResponse(
-        url=f"/admin/opening-hours?message={message}",
+        url=f"/admin/opening-hours?message={message}&restaurant_id={restaurant_id_raw}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -908,6 +1010,8 @@ def admin_locations_page(request: Request, message: str | None = None) -> Respon
                 current_user=user_or_response,
                 message=message,
                 locations=locations,
+                restaurants=restaurants,
+                selected_restaurant_id=selected_restaurant_id,
             ),
         )
     finally:
@@ -950,6 +1054,7 @@ async def admin_locations_create(request: Request) -> Response:
             delivery_time_end=delivery_time_end,
             cutoff_time=cutoff_time,
             is_active=is_active,
+            restaurant_id=restaurant.id,
             is_standard=is_standard,
         )
         db.add(location)
@@ -979,6 +1084,86 @@ def admin_locations_toggle(request: Request, location_id: int) -> RedirectRespon
         db.close()
 
     return RedirectResponse(url="/admin/locations", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/restaurants", include_in_schema=False, response_class=HTMLResponse)
+def admin_restaurants_page(request: Request, message: str | None = None) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        admin = _require_admin_user(request, db)
+        if isinstance(admin, RedirectResponse):
+            return admin
+        restaurants = db.query(Restaurant).order_by(Restaurant.id.asc()).all()
+        return templates.TemplateResponse("admin_restaurants.html", _template_context(request, current_user=admin, restaurants=restaurants, message=message))
+    finally:
+        db.close()
+
+
+@app.post("/admin/restaurants", include_in_schema=False)
+async def admin_restaurants_create(request: Request) -> Response:
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    name = form_data.get("name", [""])[0].strip()
+    is_active = form_data.get("is_active", [""])[0] == "on"
+    db: Session = db_session.SessionLocal()
+    try:
+        admin = _require_admin_user(request, db)
+        if isinstance(admin, RedirectResponse):
+            return admin
+        if name:
+            db.add(Restaurant(name=name, is_active=is_active))
+            db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(url="/admin/restaurants", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/restaurant-coverage", include_in_schema=False, response_class=HTMLResponse)
+def admin_restaurant_coverage_page(request: Request, message: str | None = None) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        admin = _require_admin_user(request, db)
+        if isinstance(admin, RedirectResponse):
+            return admin
+        restaurants = db.query(Restaurant).order_by(Restaurant.name.asc()).all()
+        selected_restaurant_id = request.query_params.get("restaurant_id")
+        restaurant = restaurants[0] if restaurants else _get_default_restaurant(db)
+        if selected_restaurant_id and selected_restaurant_id.isdigit():
+            picked = db.query(Restaurant).filter(Restaurant.id == int(selected_restaurant_id)).first()
+            if picked is not None:
+                restaurant = picked
+        locations = db.query(Location).order_by(Location.company_name.asc()).all()
+        mappings = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id).all()
+        mapping_by_location = {m.location_id: m for m in mappings}
+        return templates.TemplateResponse("admin_restaurant_coverage.html", _template_context(request, current_user=admin, restaurants=restaurants, selected_restaurant_id=restaurant.id, locations=locations, mapping_by_location=mapping_by_location, message=message))
+    finally:
+        db.close()
+
+
+@app.post("/admin/restaurant-coverage", include_in_schema=False)
+async def admin_restaurant_coverage_save(request: Request) -> Response:
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    restaurant_id_raw = form_data.get("restaurant_id", [""])[0]
+    location_id_raw = form_data.get("location_id", [""])[0]
+    is_active = form_data.get("is_active", [""])[0] == "on"
+    cut_off = form_data.get("cut_off_time_override", [""])[0].strip()
+    if not restaurant_id_raw.isdigit() or not location_id_raw.isdigit():
+        return RedirectResponse(url="/admin/restaurant-coverage", status_code=status.HTTP_303_SEE_OTHER)
+    db: Session = db_session.SessionLocal()
+    try:
+        admin = _require_admin_user(request, db)
+        if isinstance(admin, RedirectResponse):
+            return admin
+        mapping = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == int(restaurant_id_raw), RestaurantLocation.location_id == int(location_id_raw)).first()
+        if mapping is None:
+            mapping = RestaurantLocation(restaurant_id=int(restaurant_id_raw), location_id=int(location_id_raw), is_active=is_active)
+            db.add(mapping)
+        else:
+            mapping.is_active = is_active
+        mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
+        db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(url=f"/admin/restaurant-coverage?restaurant_id={restaurant_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/dev/promote-admin", include_in_schema=False)
@@ -1021,40 +1206,40 @@ async def submit_order(request: Request) -> Response:
 
         form_data = parse_qs((await request.body()).decode("utf-8"))
         now: datetime = _current_local_datetime()
-        ordering_open, open_time, close_time = _is_ordering_open_now(db, now.time().replace(second=0, microsecond=0))
 
         selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
         quantities: dict[int, int] = _parse_quantities(form_data)
 
-        if not ordering_open:
+        location_id_raw: str = form_data.get("location_id", [""])[0].strip()
+        restaurant_id_raw: str = form_data.get("restaurant_id", [""])[0].strip()
+        if not location_id_raw.isdigit() or not restaurant_id_raw.isdigit():
+            message = "Please select location and restaurant.".replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+        location_id = int(location_id_raw)
+        restaurant_id = int(restaurant_id_raw)
+
+        location: Location | None = db.query(Location).filter(Location.id == location_id, Location.is_active.is_(True)).first()
+        restaurant: Restaurant | None = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_active.is_(True)).first()
+        if location is None or restaurant is None:
+            message = "Invalid location or restaurant.".replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+        if not validate_restaurant_delivers_to_location(db, restaurant.id, location.id):
+            message = "Selected restaurant does not deliver to selected location.".replace(" ", "+")
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}&location_id={location.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+        restaurant_open, _, _ = is_ordering_open(db, restaurant.id, now.time().replace(second=0, microsecond=0))
+        if not restaurant_open:
             return _render_order_page(
                 request=request,
                 error=t("order.opening_hours.closed", lang),
                 selected_date=selected_date,
+                selected_location_id=location.id,
+                selected_restaurant_id=restaurant.id,
                 cutoff_prompt=False,
-                selected_location_id=None,
-                quantities={},
+                quantities=quantities,
             )
-
-        location_id_raw: str = form_data.get("location_id", [""])[0].strip()
-        if not location_id_raw:
-            message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
-
-        try:
-            location_id: int = int(location_id_raw)
-        except ValueError:
-            message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
-
-        location: Location | None = (
-            db.query(Location)
-            .filter(Location.id == location_id, Location.is_active.is_(True))
-            .first()
-        )
-        if location is None:
-            message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
         order_for_next_day: bool = form_data.get("order_for_next_day", [""])[0] == "1"
         target_date: date = selected_date
@@ -1062,7 +1247,7 @@ async def submit_order(request: Request) -> Response:
             try:
                 target_date = resolve_target_order_date(
                     now=now,
-                    location=location,
+                    cutoff_time=get_effective_cutoff(db, restaurant.id, location.id, location),
                     order_for_next_day=order_for_next_day,
                 )
             except CutoffPassedError:
@@ -1072,26 +1257,23 @@ async def submit_order(request: Request) -> Response:
                     selected_date=selected_date,
                     cutoff_prompt=True,
                     selected_location_id=location.id,
+                    selected_restaurant_id=restaurant.id,
                     quantities=quantities,
                 )
 
-        if target_date < _order_horizon_dates()[0] or target_date > _order_horizon_dates()[-1]:
-            return _render_order_page(
-                request=request,
-                error=t("order.error.invalid_date", lang),
-                selected_date=selected_date,
-                cutoff_prompt=False,
-                selected_location_id=location.id,
-                quantities=quantities,
-            )
-
         order: Order | None = (
             db.query(Order)
-            .filter(Order.user_id == user.id, Order.order_date == target_date)
+            .filter(Order.user_id == user.id, Order.order_date == target_date, Order.restaurant_id == restaurant.id)
             .first()
         )
         if order is None:
-            order = Order(user_id=user.id, location_id=location.id, order_date=target_date, status="created")
+            order = Order(
+                user_id=user.id,
+                location_id=location.id,
+                restaurant_id=restaurant.id,
+                order_date=target_date,
+                status="created",
+            )
             db.add(order)
             db.flush()
         else:
@@ -1100,13 +1282,11 @@ async def submit_order(request: Request) -> Response:
         db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 
         allowed_catalog_ids: set[int] = {
-            item.id for item in _list_catalog_items_for_date(db=db, target_date=target_date)
+            item.id for item in _list_catalog_items_for_date(db=db, target_date=target_date, restaurant_id=restaurant.id)
         }
 
         for catalog_item_id, quantity in quantities.items():
-            if quantity < 1:
-                continue
-            if catalog_item_id not in allowed_catalog_ids:
+            if quantity < 1 or catalog_item_id not in allowed_catalog_ids:
                 continue
             db.add(OrderItem(order_id=order.id, catalog_item_id=catalog_item_id, quantity=quantity))
 
@@ -1128,8 +1308,9 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        catalog_items: list[CatalogItem] = list_catalog_items(db=db)
-        today_items: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        catalog_items: list[CatalogItem] = list_catalog_items(db=db, restaurant_id=restaurant.id)
+        today_items: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date, restaurant_id=restaurant.id)
         enabled_today_ids: set[int] = {
             item.catalog_item_id for item in today_items if item.is_active and item.catalog_item.is_active
         }
@@ -1144,6 +1325,7 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
                 message=message,
                 error=None,
                 current_user=user_or_response,
+                current_restaurant=restaurant,
             ),
         )
     finally:
@@ -1161,6 +1343,8 @@ async def catering_menu_create(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
+        restaurant = _require_catering_restaurant(user_or_response, db)
+
         name: str = form_data.get("name", [""])[0].strip()
         description_raw: str = form_data.get("description", [""])[0].strip()
         price_raw: str = form_data.get("price", [""])[0]
@@ -1174,8 +1358,8 @@ async def catering_menu_create(request: Request) -> Response:
                 _template_context(
                     request,
                     selected_date=date.today(),
-                    catalog_items=list_catalog_items(db=db),
-                    today_items=list_menu_items_for_date(db=db, menu_date=date.today()),
+                    catalog_items=list_catalog_items(db=db, restaurant_id=restaurant.id),
+                    today_items=list_menu_items_for_date(db=db, menu_date=date.today(), restaurant_id=restaurant.id),
                     enabled_today_ids=set(),
                     message=None,
                     error=error_message,
@@ -1193,8 +1377,8 @@ async def catering_menu_create(request: Request) -> Response:
                 _template_context(
                     request,
                     selected_date=date.today(),
-                    catalog_items=list_catalog_items(db=db),
-                    today_items=list_menu_items_for_date(db=db, menu_date=date.today()),
+                    catalog_items=list_catalog_items(db=db, restaurant_id=restaurant.id),
+                    today_items=list_menu_items_for_date(db=db, menu_date=date.today(), restaurant_id=restaurant.id),
                     enabled_today_ids=set(),
                     message=None,
                     error=error_message,
@@ -1209,7 +1393,7 @@ async def catering_menu_create(request: Request) -> Response:
             description=description_raw or None,
             price_cents=price_cents,
             is_active=is_active,
-            is_standard=is_standard,
+            restaurant_id=restaurant.id,
         )
     finally:
         db.close()
@@ -1235,6 +1419,7 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
             .filter(
                 DailyMenuItem.catalog_item_id == catalog_item_id,
                 DailyMenuItem.menu_date == date.today(),
+                DailyMenuItem.restaurant_id == _require_catering_restaurant(user_or_response, db).id,
             )
             .first()
         )
@@ -1243,6 +1428,7 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
                 db=db,
                 catalog_item_id=catalog_item_id,
                 menu_date=date.today(),
+                restaurant_id=_require_catering_restaurant(user_or_response, db).id,
                 is_active=True,
             )
         else:
@@ -1271,9 +1457,10 @@ def catering_orders_page(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
+        restaurant = _require_catering_restaurant(user_or_response, db)
         orders: list[Order] = (
             db.query(Order)
-            .filter(Order.order_date == selected_date)
+            .filter(Order.order_date == selected_date, Order.restaurant_id == restaurant.id)
             .order_by(Order.id.asc())
             .all()
         )
@@ -1287,6 +1474,7 @@ def catering_orders_page(request: Request) -> Response:
                 order_rows=order_rows,
                 location_summaries=location_summaries,
                 current_user=user_or_response,
+                current_restaurant=restaurant,
             ),
         )
     finally:

@@ -20,6 +20,7 @@ class Order(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), nullable=False)
+    restaurant_id: Mapped[int | None] = mapped_column(ForeignKey("restaurants.id"), nullable=True)
     order_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
     created_at: Mapped[datetime] = mapped_column(

@@ -4,7 +4,7 @@
 
 {% block content %}
 <header class="stack-md">
-  <h1>{{ t('catering_orders.title', lang) }}</h1>
+  <h1>{{ t('catering_orders.title', lang) }}{% if current_restaurant %} - {{ current_restaurant.name }}{% endif %}</h1>
   <p class="lead">{{ t('catering_orders.lead', lang) }}</p>
 </header>
 

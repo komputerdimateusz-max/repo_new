@@ -12,3 +12,17 @@
 ## Notes
 - Weekly ordering horizon is enforced on backend (`today..today+6`).
 - SQLite migration is handled via `ensure_sqlite_schema(engine)` (no Alembic).
+
+## Marketplace MVP (multi-restaurant)
+
+- Added `restaurants`, `restaurant_opening_hours`, and `restaurant_locations` tables.
+- Added `restaurant_id` to `catalog_items`, `daily_menu_items`, `orders`, and `users` (nullable for users).
+- SQLite lightweight migration (`ensure_sqlite_schema`) now:
+  - creates new restaurant tables,
+  - adds new columns when missing,
+  - creates default `Default Restaurant`,
+  - backfills all legacy rows to that default restaurant,
+  - seeds delivery mapping from default restaurant to active locations when no mapping exists.
+- Ordering flow now requires both location and restaurant; menu is shown per selected restaurant.
+- Cutoff logic resolves as: `RestaurantLocation.cut_off_time_override` -> `Location.cutoff_time` -> app default.
+- Catering role is scoped to one restaurant via `users.restaurant_id`.

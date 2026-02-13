@@ -18,6 +18,7 @@
   <p>{{ t('opening_hours.current_window', lang).format(open_time=open_time, close_time=close_time) }}</p>
 
   <form method="post" action="/admin/opening-hours" class="stack-md">
+    <label class="field"><span>Restaurant</span><select name="restaurant_id">{% for restaurant in restaurants %}<option value="{{ restaurant.id }}" {% if restaurant.id == selected_restaurant_id %}selected{% endif %}>{{ restaurant.name }}</option>{% endfor %}</select></label>
     <label class="field">
       <span>{{ t('opening_hours.open_time', lang) }}</span>
       <input type="time" name="open_time" value="{{ open_time }}" required />

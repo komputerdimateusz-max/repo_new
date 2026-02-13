@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.menu import CatalogItem, DailyMenuItem
+from app.models.restaurant import Restaurant
 from app.models.user import User
 from app.schemas.menu import (
     CatalogItemCreate,
@@ -34,6 +35,18 @@ def _require_menu_role(current_user: User) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
 
+def _resolve_restaurant_id(db: Session, current_user: User) -> int:
+    if current_user.role == "catering" and current_user.restaurant_id is not None:
+        return current_user.restaurant_id
+    restaurant = db.query(Restaurant).order_by(Restaurant.id.asc()).first()
+    if restaurant is None:
+        restaurant = Restaurant(name="Default Restaurant", is_active=True)
+        db.add(restaurant)
+        db.commit()
+        db.refresh(restaurant)
+    return restaurant.id
+
+
 def _serialize_daily_item(daily_item: DailyMenuItem) -> DailyMenuItemResponse:
     catalog_item = daily_item.catalog_item
     return DailyMenuItemResponse(
@@ -51,7 +64,10 @@ def _serialize_daily_item(daily_item: DailyMenuItem) -> DailyMenuItemResponse:
 def get_today_menu(db: Session = Depends(get_db)) -> list[DailyMenuItemResponse]:
     """Return active menu items for today."""
     today: date = date.today()
-    rows = list_today_active_daily_items(db=db, menu_date=today)
+    restaurant_id = db.query(Restaurant.id).order_by(Restaurant.id.asc()).first()
+    if restaurant_id is None:
+        return []
+    rows = list_today_active_daily_items(db=db, menu_date=today, restaurant_id=restaurant_id[0])
     return [_serialize_daily_item(row) for row in rows]
 
 
@@ -68,10 +84,12 @@ def activate_menu_item(
     if catalog_item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Catalog item not found")
 
+    restaurant_id = _resolve_restaurant_id(db, current_user)
     daily_item = activate_catalog_item_for_date(
         db=db,
         catalog_item_id=payload.catalog_item_id,
         menu_date=target_date,
+        restaurant_id=restaurant_id,
         is_active=payload.is_active,
     )
     return _serialize_daily_item(daily_item)
@@ -85,12 +103,14 @@ def create_catalog(
 ) -> CatalogItem:
     """Create catalog item."""
     _require_menu_role(current_user)
+    restaurant_id = _resolve_restaurant_id(db, current_user)
     return create_catalog_item(
         db=db,
         name=payload.name,
         description=payload.description,
         price_cents=payload.price_cents,
         is_active=payload.is_active,
+        restaurant_id=_resolve_restaurant_id(db, current_user),
     )
 
 
@@ -101,7 +121,7 @@ def get_catalog(
 ) -> list[CatalogItem]:
     """List catalog items for catering/admin."""
     _require_menu_role(current_user)
-    return list_catalog_items(db=db)
+    return list_catalog_items(db=db, restaurant_id=_resolve_restaurant_id(db, current_user))
 
 
 @router.post("", response_model=DailyMenuItemResponse, status_code=status.HTTP_201_CREATED)
@@ -119,6 +139,7 @@ def create_menu_item_compat(
         description=payload.description,
         price_cents=payload.price_cents,
         is_active=payload.is_active,
+        restaurant_id=_resolve_restaurant_id(db, current_user),
     )
     return _serialize_daily_item(item)
 
@@ -131,5 +152,5 @@ def get_menu_for_date(
 ) -> list[DailyMenuItemResponse]:
     """Return all daily menu rows for selected date."""
     _require_menu_role(current_user)
-    rows = list_menu_items_for_date(db=db, menu_date=date_value)
+    rows = list_menu_items_for_date(db=db, menu_date=date_value, restaurant_id=_resolve_restaurant_id(db, current_user))
     return [_serialize_daily_item(row) for row in rows]

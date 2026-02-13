@@ -7,29 +7,30 @@ from sqlalchemy.orm import Session
 from app.models.menu import CatalogItem, DailyMenuItem
 
 
-def list_menu_items_for_date(db: Session, menu_date: date) -> list[DailyMenuItem]:
+def list_menu_items_for_date(db: Session, menu_date: date, restaurant_id: int) -> list[DailyMenuItem]:
     """Return all daily activations for date with catalog details."""
     return (
         db.query(DailyMenuItem)
         .join(CatalogItem, DailyMenuItem.catalog_item_id == CatalogItem.id)
-        .filter(DailyMenuItem.menu_date == menu_date)
+        .filter(DailyMenuItem.menu_date == menu_date, DailyMenuItem.restaurant_id == restaurant_id)
         .order_by(DailyMenuItem.id.asc())
         .all()
     )
 
 
-def get_menu_for_date(db: Session, target_date: date) -> list[DailyMenuItem]:
+def get_menu_for_date(db: Session, target_date: date, restaurant_id: int) -> list[DailyMenuItem]:
     """Return active daily menu rows for a given date."""
-    return list_today_active_daily_items(db=db, menu_date=target_date)
+    return list_today_active_daily_items(db=db, menu_date=target_date, restaurant_id=restaurant_id)
 
 
-def list_today_active_daily_items(db: Session, menu_date: date) -> list[DailyMenuItem]:
+def list_today_active_daily_items(db: Session, menu_date: date, restaurant_id: int) -> list[DailyMenuItem]:
     """Return active daily menu for target date based on catalog + daily status."""
     return (
         db.query(DailyMenuItem)
         .join(CatalogItem, DailyMenuItem.catalog_item_id == CatalogItem.id)
         .filter(
             DailyMenuItem.menu_date == menu_date,
+            DailyMenuItem.restaurant_id == restaurant_id,
             DailyMenuItem.is_active.is_(True),
             CatalogItem.is_active.is_(True),
         )
@@ -38,9 +39,9 @@ def list_today_active_daily_items(db: Session, menu_date: date) -> list[DailyMen
     )
 
 
-def list_catalog_items(db: Session) -> list[CatalogItem]:
-    """Return complete catalog, active and inactive."""
-    return db.query(CatalogItem).order_by(CatalogItem.id.asc()).all()
+def list_catalog_items(db: Session, restaurant_id: int) -> list[CatalogItem]:
+    """Return complete catalog for one restaurant, active and inactive."""
+    return db.query(CatalogItem).filter(CatalogItem.restaurant_id == restaurant_id).order_by(CatalogItem.id.asc()).all()
 
 
 def create_catalog_item(
@@ -49,6 +50,7 @@ def create_catalog_item(
     description: str | None,
     price_cents: int,
     is_active: bool,
+    restaurant_id: int,
     is_standard: bool = False,
 ) -> CatalogItem:
     """Create and persist a catalog item."""
@@ -58,6 +60,7 @@ def create_catalog_item(
         price_cents=price_cents,
         is_active=is_active,
         is_standard=is_standard,
+        restaurant_id=restaurant_id,
     )
     db.add(item)
     db.commit()
@@ -70,6 +73,7 @@ def activate_catalog_item_for_date(
     *,
     catalog_item_id: int,
     menu_date: date,
+    restaurant_id: int,
     is_active: bool,
 ) -> DailyMenuItem:
     """Create or update daily activation for a catalog item."""
@@ -78,6 +82,7 @@ def activate_catalog_item_for_date(
         .filter(
             DailyMenuItem.catalog_item_id == catalog_item_id,
             DailyMenuItem.menu_date == menu_date,
+            DailyMenuItem.restaurant_id == restaurant_id,
         )
         .first()
     )
@@ -85,6 +90,7 @@ def activate_catalog_item_for_date(
         daily_item = DailyMenuItem(
             catalog_item_id=catalog_item_id,
             menu_date=menu_date,
+            restaurant_id=restaurant_id,
             is_active=is_active,
         )
         db.add(daily_item)
@@ -106,11 +112,12 @@ def toggle_menu_item_active(db: Session, menu_item: DailyMenuItem) -> DailyMenuI
     return menu_item
 
 
-def enable_standard_for_date(db: Session, target_date: date) -> int:
+def enable_standard_for_date(db: Session, target_date: date, restaurant_id: int) -> int:
     """Enable all standard catalog dishes for the provided date without duplicates."""
     standard_items: list[CatalogItem] = (
         db.query(CatalogItem)
         .filter(
+            CatalogItem.restaurant_id == restaurant_id,
             CatalogItem.is_standard.is_(True),
             CatalogItem.is_active.is_(True),
         )
@@ -122,7 +129,7 @@ def enable_standard_for_date(db: Session, target_date: date) -> int:
     existing_ids: set[int] = {
         row.catalog_item_id
         for row in db.query(DailyMenuItem)
-        .filter(DailyMenuItem.menu_date == target_date)
+        .filter(DailyMenuItem.menu_date == target_date, DailyMenuItem.restaurant_id == restaurant_id)
         .all()
     }
 
@@ -130,7 +137,7 @@ def enable_standard_for_date(db: Session, target_date: date) -> int:
     for item in standard_items:
         if item.id in existing_ids:
             continue
-        db.add(DailyMenuItem(menu_date=target_date, catalog_item_id=item.id, is_active=True))
+        db.add(DailyMenuItem(menu_date=target_date, catalog_item_id=item.id, restaurant_id=restaurant_id, is_active=True))
         created_count += 1
 
     if created_count > 0:
@@ -138,7 +145,7 @@ def enable_standard_for_date(db: Session, target_date: date) -> int:
     return created_count
 
 
-def copy_menu(db: Session, from_date: date, to_date: date) -> int:
+def copy_menu(db: Session, from_date: date, to_date: date, restaurant_id: int) -> int:
     """Copy active menu rows from one date to another, skipping duplicates."""
     if from_date == to_date:
         return 0
@@ -147,6 +154,7 @@ def copy_menu(db: Session, from_date: date, to_date: date) -> int:
         db.query(DailyMenuItem)
         .join(CatalogItem, DailyMenuItem.catalog_item_id == CatalogItem.id)
         .filter(
+            DailyMenuItem.restaurant_id == restaurant_id,
             DailyMenuItem.menu_date == from_date,
             DailyMenuItem.is_active.is_(True),
             CatalogItem.is_active.is_(True),
@@ -159,7 +167,7 @@ def copy_menu(db: Session, from_date: date, to_date: date) -> int:
     existing_target_ids: set[int] = {
         row.catalog_item_id
         for row in db.query(DailyMenuItem)
-        .filter(DailyMenuItem.menu_date == to_date)
+        .filter(DailyMenuItem.menu_date == to_date, DailyMenuItem.restaurant_id == restaurant_id)
         .all()
     }
 
@@ -167,7 +175,7 @@ def copy_menu(db: Session, from_date: date, to_date: date) -> int:
     for row in source_items:
         if row.catalog_item_id in existing_target_ids:
             continue
-        db.add(DailyMenuItem(menu_date=to_date, catalog_item_id=row.catalog_item_id, is_active=True))
+        db.add(DailyMenuItem(menu_date=to_date, catalog_item_id=row.catalog_item_id, restaurant_id=restaurant_id, is_active=True))
         created_count += 1
 
     if created_count > 0:
@@ -182,6 +190,7 @@ def create_menu_item(
     description: str | None,
     price_cents: int,
     is_active: bool,
+    restaurant_id: int,
 ) -> DailyMenuItem:
     """Backwards-compatible creator; creates catalog item and daily activation."""
     catalog_item = create_catalog_item(
@@ -190,10 +199,12 @@ def create_menu_item(
         description=description,
         price_cents=price_cents,
         is_active=True,
+        restaurant_id=restaurant_id,
     )
     return activate_catalog_item_for_date(
         db=db,
         catalog_item_id=catalog_item.id,
         menu_date=menu_date,
+        restaurant_id=restaurant_id,
         is_active=is_active,
     )

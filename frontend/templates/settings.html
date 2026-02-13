@@ -17,26 +17,33 @@
           <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_id', lang) }}</th>
           <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_email', lang) }}</th>
           <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_role', lang) }}</th>
+          <th style="text-align: left; padding: 0.5rem;">Restaurant</th>
           <th style="text-align: left; padding: 0.5rem;">{{ t('settings.column_action', lang) }}</th>
         </tr>
       </thead>
       <tbody>
         {% for user in users %}
         <tr>
-          <td style="padding: 0.5rem;">{{ user.id }}</td>
-          <td style="padding: 0.5rem;">{{ user.email }}</td>
-          <td style="padding: 0.5rem;">
-            <form method="post" action="/settings/users/{{ user.id }}/role" class="form-inline">
+          <form method="post" action="/settings/users/{{ user.id }}/role" class="form-inline">
+            <td style="padding: 0.5rem;">{{ user.id }}</td>
+            <td style="padding: 0.5rem;">{{ user.email }}</td>
+            <td style="padding: 0.5rem;">
               <select name="role" aria-label="{{ t('settings.column_role', lang) }}">
                 {% for role in ['employee', 'company', 'catering', 'admin'] %}
                 <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ t('role.' ~ role, lang) }}</option>
                 {% endfor %}
               </select>
-          </td>
-          <td style="padding: 0.5rem;">
-              <button type="submit">{{ t('settings.save', lang) }}</button>
-            </form>
-          </td>
+            </td>
+            <td style="padding: 0.5rem;">
+              <select name="restaurant_id">
+                <option value="">-</option>
+                {% for restaurant in restaurants %}
+                <option value="{{ restaurant.id }}" {% if user.restaurant_id == restaurant.id %}selected{% endif %}>{{ restaurant.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td style="padding: 0.5rem;"><button type="submit">{{ t('settings.save', lang) }}</button></td>
+          </form>
         </tr>
         {% endfor %}
       </tbody>

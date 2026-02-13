@@ -28,6 +28,7 @@
   <form method="post" action="/app/order" class="stack-md">
     <input type="hidden" name="location_id" value="{{ selected_location_id }}" />
     <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+    <input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />
     {% for item in menu_items %}
     <input type="hidden" name="qty_{{ item.id }}" value="{{ quantities.get(item.id, 0) }}" />
     {% endfor %}
@@ -43,8 +44,26 @@
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
   <form method="get" action="/order" class="stack-md">
     <label class="field">
+      <span>{{ t('order.select_location', lang) }}</span>
+      <select name="location_id" required>
+        <option value="">{{ t('order.select_location_placeholder', lang) }}</option>
+        {% for location in locations %}
+        <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
       <span>{{ t('menu.date', lang) }}</span>
       <input type="date" name="date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
+    </label>
+    <label class="field">
+      <span>Restaurant</span>
+      <select name="restaurant_id">
+        <option value="">Select restaurant</option>
+        {% for restaurant in restaurants %}
+        <option value="{{ restaurant.id }}" {% if selected_restaurant_id == restaurant.id %}selected{% endif %}>{{ restaurant.name }}</option>
+        {% endfor %}
+      </select>
     </label>
     <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
   </form>
