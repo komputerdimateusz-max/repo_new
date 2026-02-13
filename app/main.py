@@ -540,6 +540,12 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
         db.close()
 
 
+@app.get("/panel", include_in_schema=False)
+def panel_alias() -> RedirectResponse:
+    """Redirect legacy panel route to dashboard."""
+    return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/menu", include_in_schema=False, response_class=HTMLResponse)
 def menu_page(request: Request) -> HTMLResponse:
     """Render today's menu and order form for authenticated users."""
@@ -1483,6 +1489,12 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
         db.close()
 
 
+@app.get("/restaurant/menu", include_in_schema=False)
+def restaurant_menu_alias() -> RedirectResponse:
+    """Redirect legacy restaurant menu route to catering menu."""
+    return RedirectResponse(url="/catering/menu", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.post("/catering/menu", include_in_schema=False)
 async def catering_menu_create(request: Request) -> Response:
     """Create catalog item from catering/admin HTML form."""
@@ -1634,6 +1646,14 @@ def catering_orders_page(request: Request) -> Response:
         )
     finally:
         db.close()
+
+
+@app.get("/restaurant/orders", include_in_schema=False)
+def restaurant_orders_alias(request: Request) -> RedirectResponse:
+    """Redirect legacy restaurant orders route to catering orders."""
+    query = request.url.query
+    suffix = f"?{query}" if query else ""
+    return RedirectResponse(url=f"/catering/orders{suffix}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/health", tags=["health"])
