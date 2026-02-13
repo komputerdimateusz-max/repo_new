@@ -12,9 +12,9 @@
 <p class="alert alert-error" role="alert">{{ error }}</p>
 {% endif %}
 
-{% if not ordering_open %}
+{% if selected_restaurant and not ordering_open %}
 <section class="card stack-md" aria-label="{{ t('order.opening_hours.title', lang) }}">
-  <p class="alert alert-error" role="alert">{{ ordering_closed_message }}</p>
+  <p class="alert alert-error" role="alert">Ta restauracja nie przyjmuje teraz zamówień (poza godzinami przyjmowania). Wybierz inną.</p>
   <p>{{ t('order.opening_hours.window', lang).format(open_time=ordering_open_time, close_time=ordering_close_time) }}</p>
   {% if next_opening_message %}
   <p>{{ next_opening_message }}</p>
@@ -60,18 +60,36 @@
       <span>Restaurant</span>
       <select name="restaurant_id">
         <option value="">Select restaurant</option>
-        {% for restaurant in restaurants %}
-        <option value="{{ restaurant.id }}" {% if selected_restaurant_id == restaurant.id %}selected{% endif %}>{{ restaurant.name }}</option>
+        {% for row in restaurants %}
+        <option value="{{ row.restaurant.id }}" {% if selected_restaurant_id == row.restaurant.id %}selected{% endif %}>{{ row.restaurant.name }}</option>
         {% endfor %}
       </select>
     </label>
+    {% if selected_location_id %}
+    <label>
+      <input type="checkbox" name="show_open_only" value="1" {% if show_open_only %}checked{% endif %}>
+      Wyświetlaj tylko otwarte
+    </label>
+    {% endif %}
     <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
   </form>
 
-  {% if menu_items %}
+  {% if restaurants %}
+  <div class="stack-sm">
+    {% for row in restaurants %}
+    <div>
+      <a class="text-link" href="/order?location_id={{ selected_location_id }}&date={{ selected_date.isoformat() }}&restaurant_id={{ row.restaurant.id }}{% if show_open_only %}&show_open_only=1{% endif %}">{{ row.restaurant.name }}</a>
+      <span class="badge {% if row.open_now %}badge-active{% else %}badge-inactive{% endif %}">{% if row.open_now %}OTWARTE{% else %}ZAMKNIĘTE{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if selected_restaurant and menu_items %}
     {% if ordering_open %}
   <form method="post" action="/app/order" class="stack-md">
     <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
+    <input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />
     <label class="field">
       <span>{{ t('order.select_location', lang) }}</span>
       <select name="location_id" required>
@@ -100,7 +118,7 @@
     {% else %}
   <p>{{ t('order.opening_hours.form_disabled', lang) }}</p>
     {% endif %}
-  {% else %}
+  {% elif selected_restaurant %}
   <p>{{ t('order.empty_for_date', lang) }}</p>
   {% endif %}
 </section>

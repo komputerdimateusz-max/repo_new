@@ -53,6 +53,7 @@ from app.services.restaurant_service import (
     get_effective_cutoff,
     get_opening_hours_for_restaurant,
     is_ordering_open,
+    is_ordering_open_for_restaurant,
     validate_restaurant_delivers_to_location,
 )
 from app.services.settings_service import (
@@ -776,20 +777,44 @@ def _render_order_page(
             if restaurant_param and restaurant_param.isdigit():
                 selected_restaurant_id = int(restaurant_param)
 
+        show_open_only: bool = request.query_params.get("show_open_only") in {"1", "true", "on"}
+
         restaurants: list[Restaurant] = []
+        restaurant_statuses: list[dict[str, object]] = []
+        selected_restaurant: Restaurant | None = None
+        now_time = _current_local_time()
         if selected_location_id is not None:
             restaurants = get_active_restaurants_for_location(db, selected_location_id)
-            if selected_restaurant_id is None and restaurants:
-                selected_restaurant_id = restaurants[0].id
+            restaurant_statuses = [
+                {
+                    "restaurant": restaurant,
+                    "open_now": is_ordering_open_for_restaurant(db, restaurant.id, now_time),
+                }
+                for restaurant in restaurants
+            ]
+            selected_restaurant = next(
+                (
+                    row["restaurant"]
+                    for row in restaurant_statuses
+                    if row["restaurant"].id == selected_restaurant_id
+                ),
+                None,
+            )
+            if selected_restaurant_id is not None and selected_restaurant is None:
+                error = "Selected restaurant does not deliver to selected location."
+                selected_restaurant_id = None
+
+            if show_open_only and selected_restaurant_id is None:
+                restaurant_statuses = [row for row in restaurant_statuses if row["open_now"] is True]
 
         menu_items: list[CatalogItem] = []
-        ordering_open: bool = False
+        ordering_open: bool = True
         open_time: time = settings.app_order_open_time
         close_time: time = settings.app_order_close_time
         next_opening_message: str | None = None
-        if selected_restaurant_id is not None:
-            ordering_open, open_time, close_time = is_ordering_open(db, selected_restaurant_id, _current_local_time())
-            menu_items = _list_catalog_items_for_date(db=db, target_date=target_date, restaurant_id=selected_restaurant_id)
+        if selected_restaurant is not None:
+            ordering_open, open_time, close_time = is_ordering_open(db, selected_restaurant.id, now_time)
+            menu_items = _list_catalog_items_for_date(db=db, target_date=target_date, restaurant_id=selected_restaurant.id)
             if not ordering_open:
                 next_opening_message = _next_order_window_open_message(request, open_time)
 
@@ -799,7 +824,7 @@ def _render_order_page(
                 request,
                 menu_items=menu_items,
                 locations=locations,
-                restaurants=restaurants,
+                restaurants=restaurant_statuses,
                 error=error,
                 selected_date=target_date,
                 min_date=horizon_dates[0],
@@ -807,6 +832,8 @@ def _render_order_page(
                 cutoff_prompt=cutoff_prompt,
                 selected_location_id=selected_location_id,
                 selected_restaurant_id=selected_restaurant_id,
+                selected_restaurant=selected_restaurant,
+                show_open_only=show_open_only,
                 quantities=quantities or {},
                 current_user=user,
                 ordering_open=ordering_open,
