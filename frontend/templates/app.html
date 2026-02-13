@@ -39,48 +39,28 @@
 <section class="stack-md top-gap-sm" aria-label="{{ t('dashboard.admin_tools', lang) }}">
   <h2 class="section-heading">{{ t('dashboard.admin_tools', lang) }}</h2>
 
+  {% if current_user.role == 'restaurant' %}
   <a href="/catering/menu" class="card-link" aria-label="{{ t('dashboard.add_today_menu', lang) }}">
     <div class="card">
       <h3>{{ t('dashboard.add_today_menu', lang) }}</h3>
       <p class="lead">{{ t('dashboard.add_today_menu_description', lang) }}</p>
     </div>
   </a>
-  {% if current_user.role == 'admin' %}
-
-  <a href="/admin/weekly-menu" class="card-link" aria-label="{{ t('weekly_menu.title', lang) }}">
-    <div class="card">
-      <h3>{{ t('weekly_menu.title', lang) }}</h3>
-      <p class="lead">{{ t('weekly_menu.lead', lang) }}</p>
-    </div>
-  </a>
-  <a href="/admin/restaurants" class="card-link"><div class="card"><h3>Restaurants</h3><p class="lead">Manage restaurants</p></div></a>
-
-  <a href="/admin/restaurant-coverage" class="card-link"><div class="card"><h3>Restaurant delivery coverage</h3><p class="lead">Assign locations per restaurant.</p></div></a>
-
-  <a href="/admin/locations" class="card-link" aria-label="{{ t('dashboard.supported_locations', lang) }}">
-    <div class="card">
-      <h3>{{ t('dashboard.supported_locations', lang) }}</h3>
-      <p class="lead">{{ t('dashboard.supported_locations_description', lang) }}</p>
-    </div>
-  </a>
-
-  <a href="/admin/opening-hours" class="card-link" aria-label="{{ t('dashboard.ordering_opening_hours', lang) }}">
-    <div class="card">
-      <h3>{{ t('dashboard.ordering_opening_hours', lang) }}</h3>
-      <p class="lead">{{ t('dashboard.ordering_opening_hours_description', lang) }}</p>
-    </div>
-  </a>
-  {% endif %}
-
   <a href="/catering/orders" class="card-link" aria-label="{{ t('dashboard.catering_orders', lang) }}">
     <div class="card">
       <h3>{{ t('dashboard.catering_orders', lang) }}</h3>
       <p class="lead">{{ t('dashboard.catering_orders_description', lang) }}</p>
     </div>
   </a>
-  {% if current_user.role == 'restaurant' %}
   <a href="/restaurant/opening-hours" class="card-link"><div class="card"><h3>Opening hours</h3><p class="lead">Manage your restaurant opening hours.</p></div></a>
   <a href="/restaurant/coverage" class="card-link"><div class="card"><h3>Delivery coverage</h3><p class="lead">Manage served locations and cut-off overrides.</p></div></a>
+  {% elif current_user.role == 'admin' %}
+  <a href="/settings" class="card-link" aria-label="{{ t('nav.settings', lang) }}">
+    <div class="card">
+      <h3>{{ t('nav.settings', lang) }}</h3>
+      <p class="lead">{{ t('settings.title', lang) }}</p>
+    </div>
+  </a>
   {% endif %}
 </section>
 {% endif %}

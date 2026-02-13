@@ -408,6 +408,14 @@ async def login_submit(request: Request) -> HTMLResponse:
         db.close()
 
 
+@app.get("/logout", include_in_schema=False)
+def logout(request: Request) -> RedirectResponse:
+    """Clear access token cookie and redirect to home page."""
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key="access_token")
+    return response
+
+
 @app.get("/register", include_in_schema=False, response_class=HTMLResponse)
 def register_page(request: Request) -> HTMLResponse:
     """Render account registration page."""
