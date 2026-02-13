@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.api.v1.api import api_router
@@ -243,6 +244,80 @@ def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str
 
     return rows
 
+
+
+
+def _parse_kitchen_date(raw_value: str | None) -> date:
+    """Parse kitchen report date from query string with today fallback."""
+    if not raw_value:
+        return date.today()
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError:
+        return date.today()
+
+
+def _parse_kitchen_mode(raw_value: str | None) -> str:
+    """Return supported kitchen mode."""
+    return raw_value if raw_value in {"aggregate", "detailed"} else "aggregate"
+
+
+def _build_kitchen_aggregate_rows(db: Session, *, restaurant_id: int, selected_date: date) -> list[dict[str, object]]:
+    """Build aggregated dish quantities for kitchen operations."""
+    rows = (
+        db.query(
+            CatalogItem.name.label("dish_name"),
+            func.sum(OrderItem.quantity).label("total_quantity"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(CatalogItem, CatalogItem.id == OrderItem.catalog_item_id)
+        .filter(
+            # Recommended DB index for this filter path: orders (restaurant_id, order_date, status)
+            Order.restaurant_id == restaurant_id,
+            Order.order_date == selected_date,
+            Order.status.in_(["confirmed", "prepared"]),
+        )
+        .group_by(CatalogItem.name)
+        .order_by(func.sum(OrderItem.quantity).desc(), CatalogItem.name.asc())
+        .all()
+    )
+    return [
+        {"dish_name": row.dish_name, "total_quantity": int(row.total_quantity or 0)}
+        for row in rows
+    ]
+
+
+def _build_kitchen_detailed_rows(db: Session, *, restaurant_id: int, selected_date: date) -> list[dict[str, object]]:
+    """Build per-location dish quantities for kitchen operations."""
+    rows = (
+        db.query(
+            CatalogItem.name.label("dish_name"),
+            Location.company_name.label("location_name"),
+            func.sum(OrderItem.quantity).label("quantity"),
+            func.sum(case((Order.status == "prepared", OrderItem.quantity), else_=0)).label("prepared_quantity"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(CatalogItem, CatalogItem.id == OrderItem.catalog_item_id)
+        .join(Location, Location.id == Order.location_id)
+        .filter(
+            # Recommended DB index for this filter path: orders (restaurant_id, order_date, status)
+            Order.restaurant_id == restaurant_id,
+            Order.order_date == selected_date,
+            Order.status.in_(["confirmed", "prepared"]),
+        )
+        .group_by(CatalogItem.name, Location.company_name)
+        .order_by(CatalogItem.name.asc(), Location.company_name.asc())
+        .all()
+    )
+    return [
+        {
+            "dish_name": row.dish_name,
+            "location_name": row.location_name,
+            "quantity": int(row.quantity or 0),
+            "prepared_quantity": int(row.prepared_quantity or 0),
+        }
+        for row in rows
+    ]
 
 def _parse_location_time(time_raw: str) -> time | None:
     """Parse HH:MM value from HTML input."""
@@ -1709,6 +1784,47 @@ async def update_restaurant_order_status(request: Request, order_id: int) -> Res
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+
+
+
+@app.get("/restaurant/kitchen", include_in_schema=False, response_class=HTMLResponse)
+def restaurant_kitchen_page(request: Request) -> Response:
+    """Render read-only kitchen production view for restaurant users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user: User | None = _current_user_from_cookie(request, db)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        if user.role != "restaurant":
+            return _forbidden_catering_access(request)
+        if user.restaurant_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user has no restaurant")
+
+        selected_date: date = _parse_kitchen_date(request.query_params.get("date"))
+        selected_mode: str = _parse_kitchen_mode(request.query_params.get("mode"))
+        auto_refresh: bool = request.query_params.get("auto_refresh") == "1"
+
+        aggregate_rows: list[dict[str, object]] = []
+        detailed_rows: list[dict[str, object]] = []
+        if selected_mode == "aggregate":
+            aggregate_rows = _build_kitchen_aggregate_rows(db, restaurant_id=user.restaurant_id, selected_date=selected_date)
+        else:
+            detailed_rows = _build_kitchen_detailed_rows(db, restaurant_id=user.restaurant_id, selected_date=selected_date)
+
+        return templates.TemplateResponse(
+            "restaurant/kitchen.html",
+            _template_context(
+                request,
+                current_user=user,
+                selected_date=selected_date,
+                selected_mode=selected_mode,
+                auto_refresh=auto_refresh,
+                aggregate_rows=aggregate_rows,
+                detailed_rows=detailed_rows,
+            ),
+        )
+    finally:
+        db.close()
 
 @app.get("/restaurant/orders", include_in_schema=False)
 def restaurant_orders_alias(request: Request) -> RedirectResponse:
