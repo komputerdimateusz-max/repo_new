@@ -46,6 +46,13 @@
     </div>
   </a>
   {% if current_user.role == 'admin' %}
+
+  <a href="/admin/weekly-menu" class="card-link" aria-label="{{ t('weekly_menu.title', lang) }}">
+    <div class="card">
+      <h3>{{ t('weekly_menu.title', lang) }}</h3>
+      <p class="lead">{{ t('weekly_menu.lead', lang) }}</p>
+    </div>
+  </a>
   <a href="/admin/locations" class="card-link" aria-label="{{ t('dashboard.supported_locations', lang) }}">
     <div class="card">
       <h3>{{ t('dashboard.supported_locations', lang) }}</h3>

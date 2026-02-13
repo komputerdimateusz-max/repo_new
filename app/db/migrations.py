@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
@@ -11,6 +11,12 @@ from sqlalchemy.engine import Connection, Engine
 def _sqlite_column_names(connection: Connection, table_name: str) -> set[str]:
     """Return column names for a SQLite table using PRAGMA table_info."""
     rows = connection.execute(text(f"PRAGMA table_info({table_name});")).mappings().all()
+    return {str(row["name"]) for row in rows}
+
+
+def _sqlite_index_names(connection: Connection, table_name: str) -> set[str]:
+    """Return index names for a SQLite table using PRAGMA index_list."""
+    rows = connection.execute(text(f"PRAGMA index_list({table_name});")).mappings().all()
     return {str(row["name"]) for row in rows}
 
 
@@ -53,6 +59,41 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 )
             if "cutoff_time" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN cutoff_time TIME"))
+
+        if "catalog_items" in table_names:
+            catalog_columns: set[str] = _sqlite_column_names(connection, "catalog_items")
+            if "is_standard" not in catalog_columns:
+                connection.execute(
+                    text("ALTER TABLE catalog_items ADD COLUMN is_standard BOOLEAN NOT NULL DEFAULT 0")
+                )
+
+        if "daily_menu_items" in table_names:
+            daily_columns: set[str] = _sqlite_column_names(connection, "daily_menu_items")
+            if "menu_date" not in daily_columns:
+                today_iso: str = date.today().isoformat()
+                connection.execute(
+                    text(f"ALTER TABLE daily_menu_items ADD COLUMN menu_date DATE NOT NULL DEFAULT '{today_iso}'")
+                )
+            connection.execute(
+                text(
+                    """
+                    DELETE FROM daily_menu_items
+                    WHERE id NOT IN (
+                        SELECT MIN(id)
+                        FROM daily_menu_items
+                        GROUP BY menu_date, catalog_item_id
+                    )
+                    """
+                )
+            )
+            index_names = _sqlite_index_names(connection, "daily_menu_items")
+            if "uq_daily_menu_date_catalog_item" not in index_names:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_menu_date_catalog_item "
+                        "ON daily_menu_items(menu_date, catalog_item_id)"
+                    )
+                )
 
         if "orders" in table_names:
             orders_columns = _sqlite_column_names(connection, "orders")

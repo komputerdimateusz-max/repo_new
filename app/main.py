@@ -1,6 +1,6 @@
 """FastAPI application entrypoint."""
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -27,10 +27,12 @@ from app.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language, t
 from app.models import CatalogItem, DailyMenuItem, Location, Order, OrderItem, User
 from app.services.menu_service import (
     activate_catalog_item_for_date,
+    copy_menu,
     create_catalog_item,
+    enable_standard_for_date,
+    get_menu_for_date,
     list_catalog_items,
     list_menu_items_for_date,
-    list_today_active_daily_items,
     toggle_menu_item_active,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
@@ -88,6 +90,27 @@ def _is_ordering_open_now(db: Session, now_time: time | None = None) -> tuple[bo
     open_time, close_time = _get_order_window_times(db)
     current_time: time = now_time or _current_local_time()
     return is_within_order_window(current_time, open_time, close_time), open_time, close_time
+
+
+def _order_horizon_dates() -> list[date]:
+    """Return selectable order dates: today + next 6 days."""
+    today: date = date.today()
+    return [today + timedelta(days=offset) for offset in range(7)]
+
+
+def _parse_horizon_date(raw_value: str | None) -> date:
+    """Parse date and clamp to ordering horizon to prevent abuse."""
+    horizon: list[date] = _order_horizon_dates()
+    default_date: date = horizon[0]
+    if not raw_value:
+        return default_date
+    try:
+        parsed = date.fromisoformat(raw_value)
+    except ValueError:
+        return default_date
+    if parsed < horizon[0] or parsed > horizon[-1]:
+        return default_date
+    return parsed
 
 
 def _next_order_window_open_message(request: Request, open_time: time) -> str:
@@ -229,9 +252,9 @@ def _parse_menu_price_to_cents(price_raw: str) -> int:
     return int(cents)
 
 
-def _list_today_catalog_items(db: Session, target_date: date) -> list[CatalogItem]:
+def _list_catalog_items_for_date(db: Session, target_date: date) -> list[CatalogItem]:
     """Return catalog dishes that are enabled for the selected day."""
-    daily_rows: list[DailyMenuItem] = list_today_active_daily_items(db=db, menu_date=target_date)
+    daily_rows: list[DailyMenuItem] = get_menu_for_date(db=db, target_date=target_date)
     return [row.catalog_item for row in daily_rows]
 
 
@@ -386,7 +409,7 @@ def app_shell(request: Request, message: str | None = None) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
+        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today)
 
         order: Order | None = (
             db.query(Order)
@@ -448,7 +471,7 @@ def menu_page(request: Request) -> HTMLResponse:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
         today: date = date.today()
-        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
+        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today)
 
         return templates.TemplateResponse(
             "menu.html",
@@ -529,8 +552,9 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
 
 @app.get("/order", include_in_schema=False, response_class=HTMLResponse)
 def order_page(request: Request, error: str | None = None) -> HTMLResponse:
-    """Render focused order submission page for today's active menu."""
-    return _render_order_page(request=request, error=error)
+    """Render focused order submission page for selected menu date."""
+    selected_date: date = _parse_horizon_date(request.query_params.get("date"))
+    return _render_order_page(request=request, error=error, selected_date=selected_date)
 
 
 def _parse_quantities(form_data: dict[str, list[str]]) -> dict[int, int]:
@@ -553,6 +577,7 @@ def _render_order_page(
     *,
     request: Request,
     error: str | None,
+    selected_date: date | None = None,
     cutoff_prompt: bool = False,
     selected_location_id: int | None = None,
     quantities: dict[int, int] | None = None,
@@ -569,8 +594,9 @@ def _render_order_page(
         if not ordering_open:
             next_opening_message = _next_order_window_open_message(request, open_time)
 
-        today: date = date.today()
-        menu_items: list[CatalogItem] = _list_today_catalog_items(db=db, target_date=today)
+        target_date: date = _parse_horizon_date(selected_date.isoformat() if selected_date else None)
+        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=target_date)
+        horizon_dates: list[date] = _order_horizon_dates()
         locations: list[Location] = (
             db.query(Location)
             .filter(Location.is_active.is_(True))
@@ -584,6 +610,9 @@ def _render_order_page(
                 menu_items=menu_items,
                 locations=locations,
                 error=error,
+                selected_date=target_date,
+                min_date=horizon_dates[0],
+                max_date=horizon_dates[-1],
                 cutoff_prompt=cutoff_prompt,
                 selected_location_id=selected_location_id,
                 quantities=quantities or {},
@@ -666,6 +695,129 @@ async def settings_update_user_role(request: Request, user_id: int) -> Response:
 
     message = t("settings.success.role_updated", get_language(request)).replace(" ", "+")
     return RedirectResponse(url=f"/settings?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/weekly-menu", include_in_schema=False, response_class=HTMLResponse)
+def admin_weekly_menu_page(request: Request, message: str | None = None) -> Response:
+    """Render weekly menu scheduling page for admin users."""
+    selected_date: date = _parse_horizon_date(request.query_params.get("date"))
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        catalog_items: list[CatalogItem] = (
+            db.query(CatalogItem)
+            .filter(CatalogItem.is_active.is_(True))
+            .order_by(CatalogItem.name.asc())
+            .all()
+        )
+        menu_rows: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date)
+        return templates.TemplateResponse(
+            "weekly_menu.html",
+            _template_context(
+                request,
+                selected_date=selected_date,
+                min_date=_order_horizon_dates()[0],
+                max_date=_order_horizon_dates()[-1],
+                catalog_items=catalog_items,
+                menu_rows=menu_rows,
+                message=message,
+                current_user=user_or_response,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/weekly-menu/add", include_in_schema=False)
+async def admin_weekly_menu_add(request: Request) -> Response:
+    """Add selected catalog item to selected date."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
+    catalog_item_id_raw: str = form_data.get("catalog_item_id", [""])[0]
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        try:
+            catalog_item_id = int(catalog_item_id_raw)
+        except ValueError:
+            return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+        activate_catalog_item_for_date(
+            db=db,
+            catalog_item_id=catalog_item_id,
+            menu_date=selected_date,
+            is_active=True,
+        )
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/weekly-menu/{daily_item_id}/remove", include_in_schema=False)
+def admin_weekly_menu_remove(request: Request, daily_item_id: int) -> Response:
+    """Remove a daily menu row from selected date."""
+    selected_date: date = _parse_horizon_date(request.query_params.get("date"))
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        row: DailyMenuItem | None = db.query(DailyMenuItem).filter(DailyMenuItem.id == daily_item_id).first()
+        if row is not None:
+            db.delete(row)
+            db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/weekly-menu/enable-standard", include_in_schema=False)
+async def admin_weekly_menu_enable_standard(request: Request) -> Response:
+    """Enable standard dishes for selected day."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        enable_standard_for_date(db=db, target_date=selected_date)
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/weekly-menu/copy", include_in_schema=False)
+async def admin_weekly_menu_copy(request: Request) -> Response:
+    """Copy menu from one date to another."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
+    from_date: date = _parse_horizon_date(form_data.get("from_date", [None])[0])
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        copy_menu(db=db, from_date=from_date, to_date=selected_date)
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/admin/opening-hours", include_in_schema=False, response_class=HTMLResponse)
@@ -798,6 +950,7 @@ async def admin_locations_create(request: Request) -> Response:
             delivery_time_end=delivery_time_end,
             cutoff_time=cutoff_time,
             is_active=is_active,
+            is_standard=is_standard,
         )
         db.add(location)
         db.commit()
@@ -869,38 +1022,30 @@ async def submit_order(request: Request) -> Response:
         form_data = parse_qs((await request.body()).decode("utf-8"))
         now: datetime = _current_local_datetime()
         ordering_open, open_time, close_time = _is_ordering_open_now(db, now.time().replace(second=0, microsecond=0))
+
+        selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
+        quantities: dict[int, int] = _parse_quantities(form_data)
+
         if not ordering_open:
-            return templates.TemplateResponse(
-                "order.html",
-                _template_context(
-                    request,
-                    error=t("order.opening_hours.closed", lang),
-                    cutoff_prompt=False,
-                    selected_location_id=None,
-                    quantities={},
-                    current_user=user,
-                    menu_items=[],
-                    locations=[],
-                    ordering_open=False,
-                    ordering_open_time=open_time.strftime("%H:%M"),
-                    ordering_close_time=close_time.strftime("%H:%M"),
-                    ordering_closed_message=t("order.opening_hours.closed", lang),
-                    next_opening_message=_next_order_window_open_message(request, open_time),
-                ),
-                status_code=status.HTTP_403_FORBIDDEN,
+            return _render_order_page(
+                request=request,
+                error=t("order.opening_hours.closed", lang),
+                selected_date=selected_date,
+                cutoff_prompt=False,
+                selected_location_id=None,
+                quantities={},
             )
 
         location_id_raw: str = form_data.get("location_id", [""])[0].strip()
-        quantities: dict[int, int] = _parse_quantities(form_data)
         if not location_id_raw:
             message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
         try:
             location_id: int = int(location_id_raw)
         except ValueError:
             message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
         location: Location | None = (
             db.query(Location)
@@ -909,20 +1054,33 @@ async def submit_order(request: Request) -> Response:
         )
         if location is None:
             message = t("order.error.location_required", lang).replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
         order_for_next_day: bool = form_data.get("order_for_next_day", [""])[0] == "1"
-        try:
-            target_date = resolve_target_order_date(
-                now=now,
-                location=location,
-                order_for_next_day=order_for_next_day,
-            )
-        except CutoffPassedError:
+        target_date: date = selected_date
+        if selected_date == now.date():
+            try:
+                target_date = resolve_target_order_date(
+                    now=now,
+                    location=location,
+                    order_for_next_day=order_for_next_day,
+                )
+            except CutoffPassedError:
+                return _render_order_page(
+                    request=request,
+                    error=None,
+                    selected_date=selected_date,
+                    cutoff_prompt=True,
+                    selected_location_id=location.id,
+                    quantities=quantities,
+                )
+
+        if target_date < _order_horizon_dates()[0] or target_date > _order_horizon_dates()[-1]:
             return _render_order_page(
                 request=request,
-                error=None,
-                cutoff_prompt=True,
+                error=t("order.error.invalid_date", lang),
+                selected_date=selected_date,
+                cutoff_prompt=False,
                 selected_location_id=location.id,
                 quantities=quantities,
             )
@@ -942,7 +1100,7 @@ async def submit_order(request: Request) -> Response:
         db.query(OrderItem).filter(OrderItem.order_id == order.id).delete()
 
         allowed_catalog_ids: set[int] = {
-            item.id for item in _list_today_catalog_items(db=db, target_date=target_date)
+            item.id for item in _list_catalog_items_for_date(db=db, target_date=target_date)
         }
 
         for catalog_item_id, quantity in quantities.items():
@@ -1007,6 +1165,7 @@ async def catering_menu_create(request: Request) -> Response:
         description_raw: str = form_data.get("description", [""])[0].strip()
         price_raw: str = form_data.get("price", [""])[0]
         is_active: bool = form_data.get("is_active", [""])[0] == "on"
+        is_standard: bool = form_data.get("is_standard", [""])[0] == "on"
 
         if not name:
             error_message = t("menu.error.name_required", get_language(request))
@@ -1050,6 +1209,7 @@ async def catering_menu_create(request: Request) -> Response:
             description=description_raw or None,
             price_cents=price_cents,
             is_active=is_active,
+            is_standard=is_standard,
         )
     finally:
         db.close()
