@@ -247,6 +247,19 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 text("UPDATE orders SET restaurant_id = :restaurant_id WHERE restaurant_id IS NULL"),
                 {"restaurant_id": default_restaurant_id},
             )
+            if "status" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'pending'"))
+            connection.execute(text("UPDATE orders SET status = 'pending' WHERE status IS NULL OR status = 'created'"))
+            if "status_updated_at" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN status_updated_at DATETIME"))
+            if "confirmed_at" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN confirmed_at DATETIME"))
+            if "prepared_at" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN prepared_at DATETIME"))
+            if "delivered_at" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN delivered_at DATETIME"))
+            if "cancelled_at" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN cancelled_at DATETIME"))
 
         if "order_items" in table_names:
             order_items_columns = _sqlite_column_names(connection, "order_items")

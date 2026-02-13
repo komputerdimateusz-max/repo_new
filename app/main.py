@@ -46,6 +46,7 @@ from app.services.menu_service import (
     toggle_menu_item_active,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
+from app.services.order_status import ORDER_STATUSES, can_transition, set_status
 from app.services.restaurant_service import (
     get_active_restaurants_for_location,
     get_effective_cutoff,
@@ -236,6 +237,7 @@ def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str
                 "user_email": user.email if user is not None else "-",
                 "total_items": total_items,
                 "total_cents": total_cents,
+                "status": order.status,
             }
         )
 
@@ -628,6 +630,7 @@ def orders_page(request: Request, message: str | None = None) -> HTMLResponse:
                 selected_date=selected_date,
                 tomorrow_date=tomorrow_date,
                 tomorrow_order_exists=tomorrow_order_exists,
+                order_status=order.status if order is not None else None,
                 message=message,
                 current_user=user,
             ),
@@ -1429,7 +1432,7 @@ async def submit_order(request: Request) -> Response:
                 location_id=location.id,
                 restaurant_id=restaurant.id,
                 order_date=target_date,
-                status="created",
+                status="pending",
             )
             db.add(order)
             db.flush()
@@ -1610,7 +1613,7 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
 
 
 @app.get("/catering/orders", include_in_schema=False, response_class=HTMLResponse)
-def catering_orders_page(request: Request) -> Response:
+def catering_orders_page(request: Request, message: str | None = None, error: str | None = None) -> Response:
     """Render daily order list for catering/admin users."""
     selected_date_str: str = request.query_params.get("date", date.today().isoformat())
     try:
@@ -1624,13 +1627,21 @@ def catering_orders_page(request: Request) -> Response:
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        restaurant = _require_catering_restaurant(user_or_response, db)
-        orders: list[Order] = (
-            db.query(Order)
-            .filter(Order.order_date == selected_date, Order.restaurant_id == restaurant.id)
-            .order_by(Order.id.asc())
-            .all()
-        )
+        status_filter: str = request.query_params.get("status", "all")
+        selected_status: str = status_filter if status_filter in {"all", *ORDER_STATUSES} else "all"
+        query = db.query(Order).filter(Order.order_date == selected_date)
+
+        restaurant: Restaurant | None
+        if user_or_response.role == "admin":
+            restaurant = None
+        else:
+            restaurant = _require_catering_restaurant(user_or_response, db)
+            query = query.filter(Order.restaurant_id == restaurant.id)
+
+        if selected_status != "all":
+            query = query.filter(Order.status == selected_status)
+
+        orders: list[Order] = query.order_by(Order.id.asc()).all()
         order_rows: list[dict[str, object]] = _build_order_summary_rows(db=db, orders=orders)
         location_summaries: list[dict[str, object]] = _build_location_group_summary(db=db, orders=orders)
         return templates.TemplateResponse(
@@ -1640,12 +1651,63 @@ def catering_orders_page(request: Request) -> Response:
                 selected_date=selected_date,
                 order_rows=order_rows,
                 location_summaries=location_summaries,
+                selected_status=selected_status,
+                order_statuses=ORDER_STATUSES,
+                message=message,
+                error=error,
                 current_user=user_or_response,
                 current_restaurant=restaurant,
             ),
         )
     finally:
         db.close()
+
+
+@app.post("/restaurant/orders/{order_id}/status", include_in_schema=False)
+async def update_restaurant_order_status(request: Request, order_id: int) -> Response:
+    """Update order status for restaurant/admin users."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    new_status: str = form_data.get("new_status", [""])[0]
+    selected_date: str = form_data.get("selected_date", [date.today().isoformat()])[0]
+    selected_status: str = form_data.get("selected_status", ["all"])[0]
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        order: Order | None = db.query(Order).filter(Order.id == order_id).first()
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+        if user_or_response.role == "restaurant" and order.restaurant_id != user_or_response.restaurant_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+        if new_status not in ORDER_STATUSES:
+            error_message = "Invalid status selected.".replace(" ", "+")
+            return RedirectResponse(
+                url=f"/catering/orders?date={selected_date}&status={selected_status}&error={error_message}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        if not can_transition(order.status, new_status):
+            error_message = f"Cannot change status from {order.status} to {new_status}.".replace(" ", "+")
+            return RedirectResponse(
+                url=f"/catering/orders?date={selected_date}&status={selected_status}&error={error_message}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        set_status(order, new_status, _current_local_datetime())
+        db.commit()
+    finally:
+        db.close()
+
+    success_message = "Order status updated.".replace(" ", "+")
+    return RedirectResponse(
+        url=f"/catering/orders?date={selected_date}&status={selected_status}&message={success_message}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get("/restaurant/orders", include_in_schema=False)

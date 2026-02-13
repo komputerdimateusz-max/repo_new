@@ -22,7 +22,12 @@ class Order(Base):
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), nullable=False)
     restaurant_id: Mapped[int | None] = mapped_column(ForeignKey("restaurants.id"), nullable=True)
     order_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    status_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

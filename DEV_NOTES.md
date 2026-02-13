@@ -29,3 +29,13 @@
 
 
 Role model: admin, customer, restaurant. Restaurant users must have restaurant_id; customers must not.
+
+## Order status flow manual check
+
+1. Create restaurant user and place a customer order.
+2. Open **Catering → Orders** as restaurant and verify status starts as `pending`.
+3. Click **Confirm** and verify the order becomes `confirmed`.
+4. Click **Mark prepared** and verify the order becomes `prepared`.
+5. Click **Mark delivered** and verify the order becomes `delivered`.
+6. Try invalid transition (for example posting `delivered -> prepared`) and verify it is blocked with an error message.
+7. Ensure a restaurant user cannot modify orders from another restaurant (returns 403).

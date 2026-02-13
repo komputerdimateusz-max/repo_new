@@ -100,7 +100,7 @@ def create_or_replace_order(
             user_id=current_user.id,
             location_id=location.id,
             order_date=target_date,
-            status="created",
+            status="pending",
         )
         db.add(order)
         db.flush()
