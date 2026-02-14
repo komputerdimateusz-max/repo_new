@@ -51,7 +51,6 @@ from app.services.menu_service import (
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
 from app.services.order_status import ORDER_STATUSES, can_transition, set_status
 from app.services.restaurant_service import (
-    get_active_restaurants_for_location,
     get_effective_cutoff,
     get_opening_hours_for_restaurant,
     is_ordering_open,
@@ -218,6 +217,28 @@ def _require_admin_user_or_403(request: Request, db: Session) -> User | Redirect
 def _is_valid_postal_code(postal_code: str) -> bool:
     """Validate postal code in NN-NNN format."""
     return bool(POSTAL_CODE_PATTERN.fullmatch(postal_code.strip()))
+
+
+def _normalize_postal_code(postal_code: str | None) -> str:
+    """Normalize postal code from query/form input."""
+    if postal_code is None:
+        return ""
+    return postal_code.replace(" ", "").strip()
+
+
+def _get_active_restaurants_for_postal_code(db: Session, postal_code: str) -> list[Restaurant]:
+    """Return active restaurants that actively serve the given postal code."""
+    return (
+        db.query(Restaurant)
+        .join(RestaurantPostalCode, RestaurantPostalCode.restaurant_id == Restaurant.id)
+        .filter(
+            Restaurant.is_active.is_(True),
+            RestaurantPostalCode.is_active.is_(True),
+            RestaurantPostalCode.postal_code == postal_code,
+        )
+        .order_by(Restaurant.name.asc())
+        .all()
+    )
 
 def _is_legacy_location(location: Location) -> bool:
     """Return True when a location represents legacy placeholder data."""
@@ -821,6 +842,7 @@ def _render_order_page(
     cutoff_prompt: bool = False,
     selected_location_id: int | None = None,
     selected_restaurant_id: int | None = None,
+    postal_code: str | None = None,
     quantities: dict[int, int] | None = None,
 ) -> HTMLResponse:
     """Render order page with optional cut-off prompt state."""
@@ -852,16 +874,20 @@ def _render_order_page(
             if restaurant_param and restaurant_param.isdigit():
                 selected_restaurant_id = int(restaurant_param)
 
+        normalized_postal_code: str = _normalize_postal_code(postal_code or request.query_params.get("postal_code"))
+        postal_code_error: str | None = None
+        if normalized_postal_code and not _is_valid_postal_code(normalized_postal_code):
+            postal_code_error = "Nieprawidłowy format kodu pocztowego. Użyj NN-NNN."
+            normalized_postal_code = ""
+
         show_open_only: bool = request.query_params.get("show_open_only") in {"1", "true", "on"}
 
         restaurants: list[Restaurant] = []
         restaurant_statuses: list[dict[str, object]] = []
         selected_restaurant: Restaurant | None = None
         now_time = _current_local_time()
-        if selected_location_id is not None:
-            restaurants = get_active_restaurants_for_location(db, selected_location_id)
-        else:
-            restaurants = db.query(Restaurant).filter(Restaurant.is_active.is_(True)).order_by(Restaurant.name.asc()).all()
+        if normalized_postal_code:
+            restaurants = _get_active_restaurants_for_postal_code(db, normalized_postal_code)
 
         restaurant_statuses = [
             {
@@ -879,7 +905,7 @@ def _render_order_page(
             None,
         )
         if selected_restaurant_id is not None and selected_restaurant is None:
-            error = "Selected restaurant does not deliver to selected location."
+            error = "Wybrana restauracja nie obsługuje podanego kodu pocztowego."
             selected_restaurant_id = None
 
         if show_open_only and selected_restaurant_id is None:
@@ -903,7 +929,7 @@ def _render_order_page(
                 menu_items=menu_items,
                 locations=locations,
                 restaurants=restaurant_statuses,
-                error=error,
+                error=error or postal_code_error,
                 selected_date=target_date,
                 min_date=horizon_dates[0],
                 max_date=horizon_dates[-1],
@@ -911,6 +937,7 @@ def _render_order_page(
                 selected_location_id=selected_location_id,
                 selected_restaurant_id=selected_restaurant_id,
                 selected_restaurant=selected_restaurant,
+                postal_code=normalized_postal_code,
                 show_open_only=show_open_only,
                 quantities=quantities or {},
                 current_user=user,
@@ -1868,11 +1895,23 @@ async def submit_order(request: Request) -> Response:
         selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
         quantities: dict[int, int] = _parse_quantities(form_data)
 
+        postal_code: str = _normalize_postal_code(form_data.get("postal_code", [""])[0])
         location_id_raw: str = form_data.get("location_id", [""])[0].strip()
         restaurant_id_raw: str = form_data.get("restaurant_id", [""])[0].strip()
+
+        if not _is_valid_postal_code(postal_code):
+            message = "Nieprawidłowy format kodu pocztowego. Użyj NN-NNN.".replace(" ", "+")
+            return RedirectResponse(
+                url=f"/order?error={message}&date={selected_date.isoformat()}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
         if not location_id_raw.isdigit() or not restaurant_id_raw.isdigit():
             message = "Please select location and restaurant.".replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(
+                url=f"/order?error={message}&date={selected_date.isoformat()}&postal_code={postal_code}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
 
         location_id = int(location_id_raw)
         restaurant_id = int(restaurant_id_raw)
@@ -1881,11 +1920,37 @@ async def submit_order(request: Request) -> Response:
         restaurant: Restaurant | None = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_active.is_(True)).first()
         if location is None or restaurant is None:
             message = "Invalid location or restaurant.".replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(
+                url=f"/order?error={message}&date={selected_date.isoformat()}&postal_code={postal_code}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        restaurant_allowed_for_postal: bool = (
+            db.query(RestaurantPostalCode)
+            .filter(
+                RestaurantPostalCode.restaurant_id == restaurant.id,
+                RestaurantPostalCode.postal_code == postal_code,
+                RestaurantPostalCode.is_active.is_(True),
+            )
+            .first()
+            is not None
+        )
+        if not restaurant_allowed_for_postal:
+            message = "Wybrana restauracja nie obsługuje podanego kodu pocztowego.".replace(" ", "+")
+            return RedirectResponse(
+                url=f"/order?error={message}&date={selected_date.isoformat()}&postal_code={postal_code}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
 
         if not validate_restaurant_delivers_to_location(db, restaurant.id, location.id):
             message = "Selected restaurant does not deliver to selected location.".replace(" ", "+")
-            return RedirectResponse(url=f"/order?error={message}&date={selected_date.isoformat()}&location_id={location.id}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(
+                url=(
+                    f"/order?error={message}&date={selected_date.isoformat()}"
+                    f"&location_id={location.id}&postal_code={postal_code}"
+                ),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
 
         restaurant_open, _, _ = is_ordering_open(db, restaurant.id, now.time().replace(second=0, microsecond=0))
         if not restaurant_open:
@@ -1895,6 +1960,7 @@ async def submit_order(request: Request) -> Response:
                 selected_date=selected_date,
                 selected_location_id=location.id,
                 selected_restaurant_id=restaurant.id,
+                postal_code=postal_code,
                 cutoff_prompt=False,
                 quantities=quantities,
             )
@@ -1916,6 +1982,7 @@ async def submit_order(request: Request) -> Response:
                     cutoff_prompt=True,
                     selected_location_id=location.id,
                     selected_restaurant_id=restaurant.id,
+                    postal_code=postal_code,
                     quantities=quantities,
                 )
 
