@@ -190,7 +190,7 @@ def test_restaurant_dashboard_hides_ordering_tiles_and_shows_restaurant_name(tmp
         response = client.get("/app")
 
     assert response.status_code == 200
-    assert "Dashboard – Bistro 77" in response.text
+    assert "Panel – Bistro 77" in response.text
     assert 'href="/order"' not in response.text
     assert 'href="/menu"' not in response.text
     assert 'href="/orders"' not in response.text
@@ -234,9 +234,9 @@ def test_dashboard_header_varies_by_role(tmp_path: Path, monkeypatch) -> None:
         client.post("/login", data={"email": "headadmin@example.com", "password": "secret123"}, follow_redirects=False)
         admin_response = client.get("/app")
 
-    assert "Dashboard – headcustomer" in customer_response.text
-    assert "Dashboard – Header Place" in restaurant_response.text
-    assert "Dashboard – Administrator" in admin_response.text
+    assert "Panel – headcustomer" in customer_response.text
+    assert "Panel – Header Place" in restaurant_response.text
+    assert "Panel – Administrator" in admin_response.text
 
 
 def test_menu_page_filters_by_selected_restaurant_for_customer(tmp_path: Path, monkeypatch) -> None:

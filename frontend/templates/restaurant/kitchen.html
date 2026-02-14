@@ -1,35 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}repo_new | Kitchen Mode{% endblock %}
+{% block title %}repo_new | {{ t('kitchen.title', lang) }}{% endblock %}
 
 {% block content %}
 <div class="page-container kitchen-page">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Kitchen Mode</h1>
-      <p class="page-subtitle">Production list for confirmed and prepared orders.</p>
+      <h1 class="page-title">{{ t('kitchen.title', lang) }}</h1>
+      <p class="page-subtitle">{{ t('kitchen.subtitle', lang) }}</p>
     </div>
-    <span class="pill pill--accent">Restaurant</span>
+    <span class="pill pill--accent">{{ t('role.restaurant', lang) }}</span>
   </header>
 
   <section class="section">
     <form method="get" action="/restaurant/kitchen" class="kitchen-controls">
       <label class="field">
-        <span>Date</span>
+        <span>{{ t('kitchen.date', lang) }}</span>
         <input class="input" type="date" name="date" value="{{ selected_date.isoformat() }}" />
       </label>
       <input type="hidden" name="mode" value="{{ selected_mode }}" />
       <label class="kitchen-autorefresh">
         <input type="checkbox" name="auto_refresh" value="1" {% if auto_refresh %}checked{% endif %} />
-        Auto-refresh every 30s
+        {{ t('kitchen.auto_refresh', lang) }}
       </label>
-      <button class="btn btn--secondary" type="submit">Apply</button>
-      <button class="btn" type="button" onclick="window.print()">Print</button>
+      <button class="btn btn--secondary" type="submit">{{ t('kitchen.apply', lang) }}</button>
+      <button class="btn" type="button" onclick="window.print()">{{ t('kitchen.print', lang) }}</button>
     </form>
 
-    <div class="kitchen-mode-toggle" role="tablist" aria-label="Kitchen mode selector">
-      <a class="btn {% if selected_mode == 'aggregate' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=aggregate{% if auto_refresh %}&auto_refresh=1{% endif %}">Aggregate</a>
-      <a class="btn {% if selected_mode == 'detailed' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=detailed{% if auto_refresh %}&auto_refresh=1{% endif %}">Detailed</a>
+    <div class="kitchen-mode-toggle" role="tablist" aria-label="{{ t('kitchen.mode_selector', lang) }}">
+      <a class="btn {% if selected_mode == 'aggregate' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=aggregate{% if auto_refresh %}&auto_refresh=1{% endif %}">{{ t('kitchen.mode.aggregate', lang) }}</a>
+      <a class="btn {% if selected_mode == 'detailed' %}{% else %}btn--secondary{% endif %}" href="/restaurant/kitchen?date={{ selected_date.isoformat() }}&mode=detailed{% if auto_refresh %}&auto_refresh=1{% endif %}">{{ t('kitchen.mode.detailed', lang) }}</a>
     </div>
   </section>
 
@@ -40,8 +40,8 @@
         <table class="simple-table kitchen-table">
           <thead>
             <tr>
-              <th>DISH NAME</th>
-              <th>TOTAL QUANTITY</th>
+              <th>{{ t('kitchen.table.dish_name', lang) }}</th>
+              <th>{{ t('kitchen.table.total_quantity', lang) }}</th>
             </tr>
           </thead>
           <tbody>
@@ -55,7 +55,7 @@
         </table>
       </div>
       {% else %}
-      <p class="kitchen-empty">No confirmed orders for this date.</p>
+      <p class="kitchen-empty">{{ t('kitchen.empty', lang) }}</p>
       {% endif %}
     {% else %}
       {% if detailed_rows %}
@@ -63,9 +63,9 @@
         <table class="simple-table kitchen-table">
           <thead>
             <tr>
-              <th>DISH</th>
-              <th>QUANTITY</th>
-              <th>LOCATION</th>
+              <th>{{ t('kitchen.table.dish', lang) }}</th>
+              <th>{{ t('kitchen.table.quantity', lang) }}</th>
+              <th>{{ t('kitchen.table.location', lang) }}</th>
             </tr>
           </thead>
           <tbody>
@@ -80,7 +80,7 @@
         </table>
       </div>
       {% else %}
-      <p class="kitchen-empty">No confirmed orders for this date.</p>
+      <p class="kitchen-empty">{{ t('kitchen.empty', lang) }}</p>
       {% endif %}
     {% endif %}
   </section>
