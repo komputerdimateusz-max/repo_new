@@ -14,6 +14,7 @@
   <form method="post" action="/restaurant/locations/request" class="stack-md">
     <label class="field"><span>{{ t('locations.company_name', lang) }}</span><input type="text" name="company_name" required /></label>
     <label class="field"><span>{{ t('locations.address', lang) }}</span><input type="text" name="address" required /></label>
+    <label class="field"><span>{{ t('locations.postal_code', lang) }}</span><input type="text" name="postal_code" required pattern="\d{2}-\d{3}" placeholder="00-000" /></label>
     <label class="field"><span>{{ t('location_requests.notes', lang) }}</span><textarea name="notes" rows="3"></textarea></label>
     <button type="submit" class="btn btn-primary">{{ t('location_requests.submit', lang) }}</button>
   </form>
@@ -24,12 +25,13 @@
   {% if requests %}
   <div class="table-wrap">
     <table class="simple-table">
-      <thead><tr><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('location_requests.status', lang) }}</th></tr></thead>
+      <thead><tr><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('locations.postal_code', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('location_requests.status', lang) }}</th></tr></thead>
       <tbody>
       {% for item in requests %}
       <tr>
         <td>{{ item.company_name }}</td>
         <td>{{ item.address }}</td>
+        <td>{{ item.postal_code }}</td>
         <td>{{ item.notes or '-' }}</td>
         <td>{{ item.status }}</td>
       </tr>

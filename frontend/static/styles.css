@@ -580,3 +580,16 @@ select {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

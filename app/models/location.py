@@ -16,6 +16,7 @@ class Location(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     address: Mapped[str] = mapped_column(String(255), nullable=False)
+    postal_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     delivery_time_start: Mapped[time | None] = mapped_column(Time, nullable=True)
     delivery_time_end: Mapped[time | None] = mapped_column(Time, nullable=True)
     cutoff_time: Mapped[time | None] = mapped_column(Time, nullable=True)
@@ -39,6 +40,7 @@ class LocationRequest(Base):
     restaurant_id: Mapped[int] = mapped_column(ForeignKey("restaurants.id"), nullable=False)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     address: Mapped[str] = mapped_column(String(255), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(16), nullable=False)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(

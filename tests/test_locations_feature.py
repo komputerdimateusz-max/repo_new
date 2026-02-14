@@ -54,6 +54,7 @@ def test_admin_can_create_location(tmp_path: Path, monkeypatch) -> None:
             data={
                 "company_name": "Acme",
                 "address": "Main 1",
+                "postal_code": "00-001",
                 "delivery_time_start": "10:00",
                 "delivery_time_end": "12:00",
                 "cutoff_time": "10:30",
@@ -72,6 +73,7 @@ def test_admin_can_create_location(tmp_path: Path, monkeypatch) -> None:
         created: Location | None = session.query(Location).filter(Location.company_name == "Acme").first()
         assert created is not None
         assert created.address == "Main 1"
+        assert created.postal_code == "00-001"
         assert created.is_active is True
         assert created.cutoff_time is not None
         assert created.cutoff_time.strftime("%H:%M") == "10:30"
@@ -83,7 +85,7 @@ def test_admin_can_create_location(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_non_admin_cannot_access_admin_locations(tmp_path: Path, monkeypatch) -> None:
-    """Employee should be redirected from admin locations page."""
+    """Non-admin should receive forbidden status on admin locations page."""
     engine = _build_test_engine(tmp_path / "test_locations_forbidden.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -95,9 +97,28 @@ def test_non_admin_cannot_access_admin_locations(tmp_path: Path, monkeypatch) ->
         _login_with_role(client, "employee-location@example.com", "customer")
         response = client.get("/admin/locations", follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/app")
+    assert response.status_code == 403
 
+
+
+def test_restaurant_cannot_create_location_directly(tmp_path: Path, monkeypatch) -> None:
+    """Restaurant users must not create locations directly."""
+    engine = _build_test_engine(tmp_path / "test_restaurant_location_forbidden.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        _login_with_role(client, "customer-location@example.com", "customer")
+        response = client.post(
+            "/admin/locations",
+            data={"company_name": "Nope", "address": "Nope 1", "postal_code": "00-000"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 403
 
 
 def test_admin_can_edit_location(tmp_path: Path, monkeypatch) -> None:
@@ -111,7 +132,7 @@ def test_admin_can_edit_location(tmp_path: Path, monkeypatch) -> None:
 
     setup_session: Session = testing_session_local()
     try:
-        location = Location(company_name="Acme", address="Main 1", is_active=True, cutoff_time=time(10, 0))
+        location = Location(company_name="Acme", address="Main 1", postal_code="00-100", is_active=True, cutoff_time=time(10, 0))
         setup_session.add(location)
         setup_session.commit()
         setup_session.refresh(location)
@@ -126,6 +147,7 @@ def test_admin_can_edit_location(tmp_path: Path, monkeypatch) -> None:
             data={
                 "company_name": "Acme Updated",
                 "address": "Main 2",
+                "postal_code": "11-111",
                 "delivery_time_start": "09:00",
                 "delivery_time_end": "11:00",
                 "cutoff_time": "09:30",
@@ -142,6 +164,7 @@ def test_admin_can_edit_location(tmp_path: Path, monkeypatch) -> None:
         assert updated is not None
         assert updated.company_name == "Acme Updated"
         assert updated.address == "Main 2"
+        assert updated.postal_code == "11-111"
         assert updated.cutoff_time is not None
         assert updated.cutoff_time.strftime("%H:%M") == "09:30"
     finally:

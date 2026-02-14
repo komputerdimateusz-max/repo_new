@@ -1,6 +1,7 @@
 """FastAPI application entrypoint."""
 
 from datetime import date, datetime, time, timedelta
+import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -83,8 +84,7 @@ ALLOWED_ROLES: set[str] = {"admin", "customer", "restaurant"}
 
 
 MENU_MANAGER_ROLES: set[str] = {"restaurant", "admin"}
-
-
+POSTAL_CODE_PATTERN = re.compile(r"^\d{2}-\d{3}$")
 
 
 def _is_valid_user_scope(user: User) -> bool:
@@ -202,6 +202,22 @@ def _require_admin_user(request: Request, db: Session) -> User | RedirectRespons
         return _forbidden_settings_access(request)
     return user
 
+
+
+
+def _require_admin_user_or_403(request: Request, db: Session) -> User | RedirectResponse:
+    """Return authenticated admin user, raising 403 for non-admin users."""
+    user: User | None = _current_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return user
+
+
+def _is_valid_postal_code(postal_code: str) -> bool:
+    """Validate postal code in NN-NNN format."""
+    return bool(POSTAL_CODE_PATTERN.fullmatch(postal_code.strip()))
 
 def _is_legacy_location(location: Location) -> bool:
     """Return True when a location represents legacy placeholder data."""
@@ -1184,7 +1200,7 @@ def admin_locations_page(
     """Render locations management page for admin users."""
     db: Session = db_session.SessionLocal()
     try:
-        user_or_response = _require_admin_user(request, db)
+        user_or_response = _require_admin_user_or_403(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
@@ -1220,6 +1236,7 @@ async def admin_locations_create(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     company_name: str = form_data.get("company_name", [""])[0].strip()
     address: str = form_data.get("address", [""])[0].strip()
+    postal_code: str = form_data.get("postal_code", [""])[0].strip()
     delivery_time_start_raw: str = form_data.get("delivery_time_start", [""])[0]
     delivery_time_end_raw: str = form_data.get("delivery_time_end", [""])[0]
     cutoff_time_raw: str = form_data.get("cutoff_time", [""])[0]
@@ -1227,12 +1244,15 @@ async def admin_locations_create(request: Request) -> Response:
 
     db: Session = db_session.SessionLocal()
     try:
-        user_or_response = _require_admin_user(request, db)
+        user_or_response = _require_admin_user_or_403(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        if not company_name or not address:
+        if not company_name or not address or not postal_code:
             message = t("locations.error.required_fields", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+        if not _is_valid_postal_code(postal_code):
+            message = t("locations.error.invalid_postal_code", get_language(request)).replace(" ", "+")
             return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         try:
@@ -1246,6 +1266,7 @@ async def admin_locations_create(request: Request) -> Response:
         location = Location(
             company_name=company_name,
             address=address,
+            postal_code=postal_code,
             delivery_time_start=delivery_time_start,
             delivery_time_end=delivery_time_end,
             cutoff_time=cutoff_time,
@@ -1266,6 +1287,7 @@ async def admin_locations_update(request: Request, location_id: int) -> Response
     form_data = parse_qs((await request.body()).decode("utf-8"))
     company_name: str = form_data.get("company_name", [""])[0].strip()
     address: str = form_data.get("address", [""])[0].strip()
+    postal_code: str = form_data.get("postal_code", [""])[0].strip()
     delivery_time_start_raw: str = form_data.get("delivery_time_start", [""])[0]
     delivery_time_end_raw: str = form_data.get("delivery_time_end", [""])[0]
     cutoff_time_raw: str = form_data.get("cutoff_time", [""])[0]
@@ -1273,7 +1295,7 @@ async def admin_locations_update(request: Request, location_id: int) -> Response
 
     db: Session = db_session.SessionLocal()
     try:
-        user_or_response = _require_admin_user(request, db)
+        user_or_response = _require_admin_user_or_403(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
@@ -1281,8 +1303,11 @@ async def admin_locations_update(request: Request, location_id: int) -> Response
         if location is None:
             return RedirectResponse(url="/admin/locations", status_code=status.HTTP_303_SEE_OTHER)
 
-        if not company_name or not address:
+        if not company_name or not address or not postal_code:
             message = t("locations.error.required_fields", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}&edit_id={location_id}", status_code=status.HTTP_303_SEE_OTHER)
+        if not _is_valid_postal_code(postal_code):
+            message = t("locations.error.invalid_postal_code", get_language(request)).replace(" ", "+")
             return RedirectResponse(url=f"/admin/locations?message={message}&edit_id={location_id}", status_code=status.HTTP_303_SEE_OTHER)
 
         try:
@@ -1295,6 +1320,7 @@ async def admin_locations_update(request: Request, location_id: int) -> Response
 
         location.company_name = company_name
         location.address = address
+        location.postal_code = postal_code
         location.delivery_time_start = delivery_time_start
         location.delivery_time_end = delivery_time_end
         location.cutoff_time = cutoff_time
@@ -1313,7 +1339,7 @@ def admin_locations_toggle(request: Request, location_id: int) -> RedirectRespon
     """Toggle active state of selected location."""
     db: Session = db_session.SessionLocal()
     try:
-        user_or_response = _require_admin_user(request, db)
+        user_or_response = _require_admin_user_or_403(request, db)
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
@@ -1643,6 +1669,7 @@ async def restaurant_location_request_create(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     company_name: str = form_data.get("company_name", [""])[0].strip()
     address: str = form_data.get("address", [""])[0].strip()
+    postal_code: str = form_data.get("postal_code", [""])[0].strip()
     notes: str = form_data.get("notes", [""])[0].strip()
 
     db: Session = db_session.SessionLocal()
@@ -1653,8 +1680,11 @@ async def restaurant_location_request_create(request: Request) -> Response:
         if user_or_response.role != "restaurant":
             return _forbidden_catering_access(request)
         restaurant = _require_catering_restaurant(user_or_response, db)
-        if not company_name or not address:
+        if not company_name or not address or not postal_code:
             message = t("location_requests.error.required", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/restaurant/locations/request?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+        if not _is_valid_postal_code(postal_code):
+            message = t("location_requests.error.invalid_postal_code", get_language(request)).replace(" ", "+")
             return RedirectResponse(url=f"/restaurant/locations/request?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
         db.add(
@@ -1662,6 +1692,7 @@ async def restaurant_location_request_create(request: Request) -> Response:
                 restaurant_id=restaurant.id,
                 company_name=company_name,
                 address=address,
+                postal_code=postal_code,
                 notes=notes or None,
                 status="pending",
             )
@@ -1722,6 +1753,7 @@ async def admin_location_requests_review(request: Request, request_id: int) -> R
             location = Location(
                 company_name=location_request.company_name,
                 address=location_request.address,
+                postal_code=location_request.postal_code,
                 is_active=True,
             )
             db.add(location)

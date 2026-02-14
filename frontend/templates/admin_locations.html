@@ -23,6 +23,10 @@
       <span>{{ t('locations.address', lang) }}</span>
       <input type="text" name="address" required value="{{ editing_location.address if editing_location else '' }}" />
     </label>
+    <label class="field">
+      <span>{{ t('locations.postal_code', lang) }}</span>
+      <input type="text" name="postal_code" required pattern="\d{2}-\d{3}" placeholder="00-000" value="{{ editing_location.postal_code if editing_location and editing_location.postal_code else '' }}" />
+    </label>
     <div class="stack-md">
       <span>{{ t('locations.delivery_hours', lang) }}</span>
       <label class="field">
@@ -65,6 +69,7 @@
         <tr>
           <th>{{ t('locations.company_name', lang) }}</th>
           <th>{{ t('locations.address', lang) }}</th>
+          <th>{{ t('locations.postal_code', lang) }}</th>
           <th>{{ t('locations.delivery_hours', lang) }}</th>
           <th>{{ t('locations.cutoff_time', lang) }}</th>
           <th>{{ t('locations.status', lang) }}</th>
@@ -76,6 +81,7 @@
         <tr>
           <td>{{ location.company_name }}</td>
           <td>{{ location.address }}</td>
+          <td>{{ location.postal_code or '-' }}</td>
           <td>
             {% if location.delivery_time_start and location.delivery_time_end %}
             {{ location.delivery_time_start.strftime('%H:%M') }} - {{ location.delivery_time_end.strftime('%H:%M') }}
