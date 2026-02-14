@@ -3,7 +3,7 @@
 from fastapi import Request
 
 SUPPORTED_LANGUAGES: set[str] = {"en", "pl"}
-DEFAULT_LANGUAGE: str = "en"
+DEFAULT_LANGUAGE: str = "pl"
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
@@ -173,6 +173,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "order.opening_hours.window": "Orders can be placed between {open_time} and {close_time}.",
         "order.opening_hours.next_open": "Next opening time: {time}.",
         "order.opening_hours.form_disabled": "Order form is disabled outside ordering hours.",
+        "coverage.title": "Restaurant delivery coverage",
+        "coverage.subtitle": "Manage active delivery mappings and cut-off overrides.",
+        "coverage.role.restaurant": "Restaurant",
+        "coverage.role.admin": "Administrator",
+        "coverage.restaurant": "Restaurant",
+        "coverage.current_cutoff": "Current Cut-off per Location",
+        "coverage.location": "Location",
+        "coverage.delivery_active": "Delivery active?",
+        "coverage.cutoff_override": "Cut-off override",
+        "coverage.effective_cutoff": "Effective cut-off",
+        "coverage.action": "Action",
+        "coverage.yes": "Yes",
+        "coverage.no": "No",
+        "coverage.edit": "Edit",
+        "coverage.update_cutoff": "Update cut-off",
+        "coverage.select_location": "Select location",
+        "coverage.active_mapping": "Active mapping",
+        "coverage.hint": "Leave empty to use location default cut-off.",
+        "coverage.save": "Save",
+        "coverage.clear_override": "Clear override",
     },
     "pl": {
         "nav.home": "Strona główna",
@@ -341,6 +361,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "order.opening_hours.window": "Zamówienia można składać między {open_time} a {close_time}.",
         "order.opening_hours.next_open": "Następne otwarcie: {time}.",
         "order.opening_hours.form_disabled": "Formularz zamówienia jest wyłączony poza godzinami zamówień.",
+        "coverage.title": "Obsługiwane lokalizacje i cut-off",
+        "coverage.subtitle": "Zarządzaj aktywnymi przypisaniami dostaw i nadpisaniami cut-off.",
+        "coverage.role.restaurant": "Restauracja",
+        "coverage.role.admin": "Administrator",
+        "coverage.restaurant": "Restauracja",
+        "coverage.current_cutoff": "Aktualny cut-off dla lokalizacji",
+        "coverage.location": "Lokalizacja",
+        "coverage.delivery_active": "Dostawa aktywna?",
+        "coverage.cutoff_override": "Nadpisanie cut-off",
+        "coverage.effective_cutoff": "Efektywny cut-off",
+        "coverage.action": "Akcja",
+        "coverage.yes": "Tak",
+        "coverage.no": "Nie",
+        "coverage.edit": "Edytuj",
+        "coverage.update_cutoff": "Aktualizuj cut-off",
+        "coverage.select_location": "Wybierz lokalizację",
+        "coverage.active_mapping": "Aktywne przypisanie",
+        "coverage.hint": "Zostaw puste aby użyć domyślnego cut-off lokalizacji.",
+        "coverage.save": "Zapisz",
+        "coverage.clear_override": "Usuń nadpisanie",
     },
 }
 

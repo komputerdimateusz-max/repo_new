@@ -78,11 +78,11 @@ def test_coverage_page_renders_table_and_single_update_form(tmp_path: Path, monk
         response = client.get(f"/restaurant/coverage?location_id={location_id}")
 
     assert response.status_code == 200
-    assert "Current Cut-off per Location" in response.text
-    assert "Update cut-off" in response.text
+    assert "Aktualny cut-off dla lokalizacji" in response.text
+    assert "Aktualizuj cut-off" in response.text
     assert response.text.count('name="location_id"') == 1
     assert "10:30" in response.text
-    assert "Edit" in response.text
+    assert "Edytuj" in response.text
 
 
 def test_coverage_post_can_clear_override_without_disabling_mapping(tmp_path: Path, monkeypatch) -> None:
