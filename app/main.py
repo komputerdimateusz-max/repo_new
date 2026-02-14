@@ -1638,6 +1638,7 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
         restaurant = _require_catering_restaurant(user_or_response, db)
         selected_location_id_raw = request.query_params.get("location_id", "")
         selected_location_id = int(selected_location_id_raw) if selected_location_id_raw.isdigit() else None
+        show_inactive = request.query_params.get("show_inactive") == "1"
 
         mappings = (
             db.query(RestaurantLocation)
@@ -1658,6 +1659,8 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
 
         coverage_rows: list[dict[str, object]] = []
         for mapping in mappings:
+            if not mapping.is_active and not show_inactive:
+                continue
             location = location_by_id.get(mapping.location_id)
             if location is None:
                 continue
@@ -1688,6 +1691,7 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
                 selected_override_time=selected_mapping.cut_off_time_override if selected_mapping else None,
                 active_postal_codes=active_postal_codes,
                 can_add_locations=bool(active_postal_codes),
+                show_inactive=show_inactive,
                 message=message,
             ),
         )
@@ -1762,6 +1766,60 @@ async def restaurant_coverage_save(request: Request) -> Response:
     finally:
         db.close()
     return RedirectResponse(url=f"/restaurant/coverage?location_id={location_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/restaurant/delivery-coverage/{location_id}/remove", include_in_schema=False)
+async def restaurant_delivery_coverage_remove(request: Request, location_id: int) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+
+        mapping = db.query(RestaurantLocation).filter(
+            RestaurantLocation.restaurant_id == restaurant.id,
+            RestaurantLocation.location_id == location_id,
+        ).first()
+        if mapping is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+        mapping.is_active = False
+        mapping.cut_off_time_override = None
+        db.commit()
+    finally:
+        db.close()
+
+    message = t("coverage.remove.success", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/restaurant/coverage?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/restaurant/delivery-coverage/{location_id}/activate", include_in_schema=False)
+async def restaurant_delivery_coverage_activate(request: Request, location_id: int) -> Response:
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+
+        mapping = db.query(RestaurantLocation).filter(
+            RestaurantLocation.restaurant_id == restaurant.id,
+            RestaurantLocation.location_id == location_id,
+        ).first()
+        if mapping is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+        mapping.is_active = True
+        db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/restaurant/coverage?location_id={location_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/dev/promote-admin", include_in_schema=False)
