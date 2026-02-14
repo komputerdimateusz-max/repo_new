@@ -68,6 +68,26 @@ def _register_and_login(client: TestClient, email: str, role: str = "customer") 
     )
 
 
+
+
+def test_order_page_lists_restaurants_without_location_selection(tmp_path: Path, monkeypatch) -> None:
+    engine = _build_test_engine(tmp_path / "test_order_restaurants_without_location.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    ids = _seed_ordering_data(testing_session_local)
+
+    with TestClient(app) as client:
+        _register_and_login(client, "preloadrestaurants@example.com")
+        response = client.get("/order")
+
+    assert response.status_code == 200
+    assert "Soup House" in response.text
+    assert f'value="{ids["restaurant_id"]}"' in response.text
+
+
 def test_opening_hours_message_is_hidden_until_restaurant_selected(tmp_path: Path, monkeypatch) -> None:
     engine = _build_test_engine(tmp_path / "test_opening_hours_selection_gate.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)

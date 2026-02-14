@@ -823,27 +823,30 @@ def _render_order_page(
         now_time = _current_local_time()
         if selected_location_id is not None:
             restaurants = get_active_restaurants_for_location(db, selected_location_id)
-            restaurant_statuses = [
-                {
-                    "restaurant": restaurant,
-                    "open_now": is_ordering_open_for_restaurant(db, restaurant.id, now_time),
-                }
-                for restaurant in restaurants
-            ]
-            selected_restaurant = next(
-                (
-                    row["restaurant"]
-                    for row in restaurant_statuses
-                    if row["restaurant"].id == selected_restaurant_id
-                ),
-                None,
-            )
-            if selected_restaurant_id is not None and selected_restaurant is None:
-                error = "Selected restaurant does not deliver to selected location."
-                selected_restaurant_id = None
+        else:
+            restaurants = db.query(Restaurant).filter(Restaurant.is_active.is_(True)).order_by(Restaurant.name.asc()).all()
 
-            if show_open_only and selected_restaurant_id is None:
-                restaurant_statuses = [row for row in restaurant_statuses if row["open_now"] is True]
+        restaurant_statuses = [
+            {
+                "restaurant": restaurant,
+                "open_now": is_ordering_open_for_restaurant(db, restaurant.id, now_time),
+            }
+            for restaurant in restaurants
+        ]
+        selected_restaurant = next(
+            (
+                row["restaurant"]
+                for row in restaurant_statuses
+                if row["restaurant"].id == selected_restaurant_id
+            ),
+            None,
+        )
+        if selected_restaurant_id is not None and selected_restaurant is None:
+            error = "Selected restaurant does not deliver to selected location."
+            selected_restaurant_id = None
+
+        if show_open_only and selected_restaurant_id is None:
+            restaurant_statuses = [row for row in restaurant_statuses if row["open_now"] is True]
 
         menu_items: list[CatalogItem] = []
         ordering_open: bool = True

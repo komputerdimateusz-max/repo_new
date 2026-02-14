@@ -45,7 +45,7 @@
   <form method="get" action="/order" class="stack-md">
     <label class="field">
       <span>{{ t('order.select_location', lang) }}</span>
-      <select name="location_id" required>
+      <select name="location_id" required onchange="this.form.restaurant_id.value=''; this.form.submit()">
         <option value="">{{ t('order.select_location_placeholder', lang) }}</option>
         {% for location in locations %}
         <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
@@ -58,12 +58,18 @@
     </label>
     <label class="field">
       <span>Restaurant</span>
+      {% if restaurants %}
       <select name="restaurant_id">
         <option value="">Select restaurant</option>
         {% for row in restaurants %}
         <option value="{{ row.restaurant.id }}" {% if selected_restaurant_id == row.restaurant.id %}selected{% endif %}>{{ row.restaurant.name }}</option>
         {% endfor %}
       </select>
+      {% else %}
+      <select name="restaurant_id" disabled>
+        <option value="">Najpierw wybierz lokalizację</option>
+      </select>
+      {% endif %}
     </label>
     {% if selected_location_id %}
     <label>
