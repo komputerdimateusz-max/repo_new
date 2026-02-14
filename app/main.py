@@ -633,13 +633,51 @@ def menu_page(request: Request) -> HTMLResponse:
         if user is None:
             return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
+        selected_restaurant_id_raw: str | None = request.query_params.get("restaurant_id")
+        selected_restaurant_id: int | None = int(selected_restaurant_id_raw) if selected_restaurant_id_raw and selected_restaurant_id_raw.isdigit() else None
+        show_open_only: bool = request.query_params.get("show_open_only") in {"1", "true", "on"}
+
+        restaurants: list[Restaurant] = []
+        if user.role == "restaurant":
+            if user.restaurant_id is not None:
+                own_restaurant: Restaurant | None = db.query(Restaurant).filter(Restaurant.id == user.restaurant_id).first()
+                if own_restaurant is not None:
+                    restaurants = [own_restaurant]
+        elif user.role in {"customer", "admin"}:
+            restaurants = (
+                db.query(Restaurant)
+                .filter(Restaurant.is_active.is_(True))
+                .order_by(Restaurant.name.asc(), Restaurant.id.asc())
+                .all()
+            )
+
+        now_time: time = _current_local_time()
+        if show_open_only:
+            restaurants = [restaurant for restaurant in restaurants if is_ordering_open_for_restaurant(db, restaurant.id, now_time)]
+
+        selected_restaurant: Restaurant | None = None
+        if restaurants:
+            if selected_restaurant_id is not None:
+                selected_restaurant = next((restaurant for restaurant in restaurants if restaurant.id == selected_restaurant_id), None)
+            if selected_restaurant is None:
+                selected_restaurant = restaurants[0]
+
         today: date = date.today()
-        restaurant = _get_default_restaurant(db)
-        menu_items: list[CatalogItem] = _list_catalog_items_for_date(db=db, target_date=today, restaurant_id=restaurant.id)
+        menu_items: list[CatalogItem] = []
+        if selected_restaurant is not None:
+            menu_items = _list_catalog_items_for_date(db=db, target_date=today, restaurant_id=selected_restaurant.id)
 
         return templates.TemplateResponse(
             "menu.html",
-            _template_context(request, menu_items=menu_items, current_user=user),
+            _template_context(
+                request,
+                menu_items=menu_items,
+                current_user=user,
+                restaurants=restaurants,
+                selected_restaurant=selected_restaurant,
+                selected_restaurant_id=selected_restaurant.id if selected_restaurant is not None else None,
+                show_open_only=show_open_only,
+            ),
         )
     finally:
         db.close()
