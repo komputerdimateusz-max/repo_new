@@ -99,6 +99,54 @@ def test_non_admin_cannot_access_admin_locations(tmp_path: Path, monkeypatch) ->
     assert response.headers["location"].startswith("/app")
 
 
+
+def test_admin_can_edit_location(tmp_path: Path, monkeypatch) -> None:
+    """Admin should update existing location fields."""
+    engine = _build_test_engine(tmp_path / "test_edit_location.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    setup_session: Session = testing_session_local()
+    try:
+        location = Location(company_name="Acme", address="Main 1", is_active=True, cutoff_time=time(10, 0))
+        setup_session.add(location)
+        setup_session.commit()
+        setup_session.refresh(location)
+        location_id = location.id
+    finally:
+        setup_session.close()
+
+    with TestClient(app) as client:
+        _login_with_role(client, "admin-edit-location@example.com", "admin")
+        response = client.post(
+            f"/admin/locations/{location_id}",
+            data={
+                "company_name": "Acme Updated",
+                "address": "Main 2",
+                "delivery_time_start": "09:00",
+                "delivery_time_end": "11:00",
+                "cutoff_time": "09:30",
+                "is_active": "on",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+
+    verify_session: Session = testing_session_local()
+    try:
+        updated = verify_session.query(Location).filter(Location.id == location_id).first()
+        assert updated is not None
+        assert updated.company_name == "Acme Updated"
+        assert updated.address == "Main 2"
+        assert updated.cutoff_time is not None
+        assert updated.cutoff_time.strftime("%H:%M") == "09:30"
+    finally:
+        verify_session.close()
+
 def test_order_requires_location(tmp_path: Path, monkeypatch) -> None:
     """Order submit without location must fail validation."""
     engine = _build_test_engine(tmp_path / "test_order_location_required.db")
