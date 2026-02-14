@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}repo_new | Dashboard{% endblock %}
+{% block title %}repo_new | {{ t('dashboard.title', lang) }}{% endblock %}
 
 {% block content %}
 <div class="page-container">
@@ -11,18 +11,18 @@
       {% elif current_user.role == "restaurant" %}
       <h1 class="page-title">{{ t('dashboard.title', lang) }} – {{ current_user.restaurant.name }}</h1>
       {% elif current_user.role == "admin" %}
-      <h1 class="page-title">{{ t('dashboard.title', lang) }} – Administrator</h1>
+      <h1 class="page-title">{{ t('dashboard.title', lang) }} – {{ t('role.admin', lang) }}</h1>
       {% endif %}
       <p class="page-subtitle">{{ t('dashboard.lead', lang) }}</p>
     </div>
     <span class="pill pill--accent">
-      {% if current_user.role == 'customer' %}Customer{% elif current_user.role == 'restaurant' %}Restaurant{% else %}Administrator{% endif %}
+      {% if current_user.role == 'customer' %}{{ t('role.customer', lang) }}{% elif current_user.role == 'restaurant' %}{{ t('role.restaurant', lang) }}{% else %}{{ t('role.admin', lang) }}{% endif %}
     </span>
   </header>
 
   {% if current_user.role == 'customer' %}
   <section class="section" aria-label="{{ t('dashboard.user_actions_label', lang) }}">
-    <h2 class="section-title">Zamówienia</h2>
+    <h2 class="section-title">{{ t('dashboard.user_actions_label', lang) }}</h2>
     <div class="card-grid">
       <a href="/order" class="tile-card tile-card--primary" aria-label="{{ t('dashboard.place_order_tile', lang) }}">
         <div class="tile-title">{{ t('dashboard.place_order_tile', lang) }}</div>
@@ -41,36 +41,36 @@
   {% endif %}
 
   {% if current_user.role == 'restaurant' %}
-  <section class="section" aria-label="Narzędzia restauracji">
-    <h2 class="section-title">Narzędzia restauracji</h2>
+  <section class="section" aria-label="{{ t('dashboard.restaurant_tools', lang) }}">
+    <h2 class="section-title">{{ t('dashboard.restaurant_tools', lang) }}</h2>
     <div class="card-grid">
-      <a href="/catering/menu" class="tile-card tile-card--primary" aria-label="Dodaj menu na dziś">
-        <div class="tile-title">Dodaj menu na dziś</div>
-        <p class="tile-desc">Zarządzaj daniami dla wybranego dnia w panelu restauracji.</p>
+      <a href="/catering/menu" class="tile-card tile-card--primary" aria-label="{{ t('dashboard.restaurant_manage_menu_today', lang) }}">
+        <div class="tile-title">{{ t('dashboard.restaurant_manage_menu_today', lang) }}</div>
+        <p class="tile-desc">{{ t('dashboard.restaurant_manage_menu_today_description', lang) }}</p>
       </a>
-      <a href="/catering/orders" class="tile-card" aria-label="Zamówienia">
-        <div class="tile-title">Zamówienia</div>
-        <p class="tile-desc">Przeglądaj zamówienia użytkowników dla wybranej daty.</p>
+      <a href="/catering/orders" class="tile-card" aria-label="{{ t('dashboard.restaurant_orders', lang) }}">
+        <div class="tile-title">{{ t('dashboard.restaurant_orders', lang) }}</div>
+        <p class="tile-desc">{{ t('dashboard.restaurant_orders_description', lang) }}</p>
       </a>
-      <a href="/restaurant/kitchen" class="tile-card" aria-label="Kitchen mode">
-        <div class="tile-title">Kitchen mode</div>
-        <p class="tile-desc">Czytelny widok produkcyjny: ilości dań i rozbicie na lokalizacje.</p>
+      <a href="/restaurant/kitchen" class="tile-card" aria-label="{{ t('dashboard.restaurant_kitchen_mode', lang) }}">
+        <div class="tile-title">{{ t('dashboard.restaurant_kitchen_mode', lang) }}</div>
+        <p class="tile-desc">{{ t('dashboard.restaurant_kitchen_mode_description', lang) }}</p>
       </a>
-      <a href="/restaurant/opening-hours" class="tile-card" aria-label="Opening hours">
-        <div class="tile-title">Opening hours</div>
-        <p class="tile-desc">Ustaw godziny przyjmowania zamówień dla restauracji.</p>
+      <a href="/restaurant/opening-hours" class="tile-card" aria-label="{{ t('dashboard.restaurant_opening_hours', lang) }}">
+        <div class="tile-title">{{ t('dashboard.restaurant_opening_hours', lang) }}</div>
+        <p class="tile-desc">{{ t('dashboard.restaurant_opening_hours_description', lang) }}</p>
       </a>
-      <a href="/restaurant/coverage" class="tile-card" aria-label="Delivery coverage">
-        <div class="tile-title">Delivery coverage</div>
-        <p class="tile-desc">Zarządzaj obsługiwanymi lokalizacjami i cut-off.</p>
+      <a href="/restaurant/coverage" class="tile-card" aria-label="{{ t('dashboard.restaurant_delivery_coverage', lang) }}">
+        <div class="tile-title">{{ t('dashboard.restaurant_delivery_coverage', lang) }}</div>
+        <p class="tile-desc">{{ t('dashboard.restaurant_delivery_coverage_description', lang) }}</p>
       </a>
     </div>
   </section>
   {% endif %}
 
   {% if current_user.role == 'admin' %}
-  <section class="section" aria-label="Narzędzia administratora">
-    <h2 class="section-title">Narzędzia administratora</h2>
+  <section class="section" aria-label="{{ t('dashboard.admin_tools', lang) }}">
+    <h2 class="section-title">{{ t('dashboard.admin_tools', lang) }}</h2>
     <div class="card-grid">
       <a href="/settings" class="tile-card tile-card--primary" aria-label="{{ t('nav.settings', lang) }}">
         <div class="tile-title">{{ t('nav.settings', lang) }}</div>
