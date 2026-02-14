@@ -13,41 +13,51 @@
 {% endif %}
 
 <section class="card stack-md">
-  <h2>{{ t('locations.add_form_title', lang) }}</h2>
-  <form method="post" action="/admin/locations" class="stack-md">
+  <h2>{% if editing_location %}{{ t('locations.edit_form_title', lang) }}{% else %}{{ t('locations.add_form_title', lang) }}{% endif %}</h2>
+  <form method="post" action="{% if editing_location %}/admin/locations/{{ editing_location.id }}{% else %}/admin/locations{% endif %}" class="stack-md">
     <label class="field">
       <span>{{ t('locations.company_name', lang) }}</span>
-      <input type="text" name="company_name" required />
+      <input type="text" name="company_name" required value="{{ editing_location.company_name if editing_location else '' }}" />
     </label>
     <label class="field">
       <span>{{ t('locations.address', lang) }}</span>
-      <input type="text" name="address" required />
+      <input type="text" name="address" required value="{{ editing_location.address if editing_location else '' }}" />
     </label>
     <div class="stack-md">
       <span>{{ t('locations.delivery_hours', lang) }}</span>
       <label class="field">
         <span>{{ t('locations.delivery_start', lang) }}</span>
-        <input type="time" name="delivery_time_start" />
+        <input type="time" name="delivery_time_start" value="{{ editing_location.delivery_time_start.strftime('%H:%M') if editing_location and editing_location.delivery_time_start else '' }}" />
       </label>
       <label class="field">
         <span>{{ t('locations.delivery_end', lang) }}</span>
-        <input type="time" name="delivery_time_end" />
+        <input type="time" name="delivery_time_end" value="{{ editing_location.delivery_time_end.strftime('%H:%M') if editing_location and editing_location.delivery_time_end else '' }}" />
       </label>
     </div>
     <label class="field">
       <span>{{ t('locations.cutoff_time', lang) }}</span>
-      <input type="time" name="cutoff_time" />
+      <input type="time" name="cutoff_time" value="{{ editing_location.cutoff_time.strftime('%H:%M') if editing_location and editing_location.cutoff_time else '' }}" />
     </label>
     <label class="field field-inline">
-      <input type="checkbox" name="is_active" checked />
+      <input type="checkbox" name="is_active" {% if not editing_location or editing_location.is_active %}checked{% endif %} />
       <span>{{ t('locations.active', lang) }}</span>
     </label>
-    <button type="submit" class="btn btn-primary">{{ t('locations.add_button', lang) }}</button>
+    <div class="row-actions">
+      <button type="submit" class="btn btn-primary">{% if editing_location %}{{ t('locations.save_button', lang) }}{% else %}{{ t('locations.add_button', lang) }}{% endif %}</button>
+      {% if editing_location %}<a href="/admin/locations" class="btn">{{ t('locations.cancel_edit', lang) }}</a>{% endif %}
+    </div>
   </form>
 </section>
 
 <section class="card stack-md top-gap-sm">
   <h2>{{ t('locations.list_title', lang) }}</h2>
+  <form method="get" action="/admin/locations" class="stack-sm">
+    <label class="field">
+      <span>{{ t('locations.search', lang) }}</span>
+      <input type="text" name="query" value="{{ query or '' }}" placeholder="{{ t('locations.search_placeholder', lang) }}" />
+    </label>
+    <button type="submit" class="btn btn-secondary">{{ t('locations.search_button', lang) }}</button>
+  </form>
   {% if locations %}
   <div class="table-wrap">
     <table class="simple-table">
@@ -73,28 +83,19 @@
             {{ t('locations.hours_not_set', lang) }}
             {% endif %}
           </td>
+          <td>{% if location.cutoff_time %}{{ location.cutoff_time.strftime('%H:%M') }}{% else %}{{ t('locations.hours_not_set', lang) }}{% endif %}</td>
+          <td>{% if location.is_active %}<span class="badge badge-success">{{ t('menu.status_active', lang) }}</span>{% else %}<span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>{% endif %}</td>
           <td>
-            {% if location.cutoff_time %}
-            {{ location.cutoff_time.strftime('%H:%M') }}
-            {% else %}
-            {{ t('locations.hours_not_set', lang) }}
-            {% endif %}
-          </td>
-          <td>
-            {% if location.is_active %}
-            <span class="badge badge-success">{{ t('menu.status_active', lang) }}</span>
-            {% else %}
-            <span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>
-            {% endif %}
-          </td>
-          <td>
-            <form method="post" action="/admin/locations/{{ location.id }}/toggle">
-              {% if location.is_active %}
-              <button type="submit" class="btn btn-secondary">{{ t('menu.disable', lang) }}</button>
-              {% else %}
-              <button type="submit" class="btn btn-secondary">{{ t('menu.enable', lang) }}</button>
-              {% endif %}
-            </form>
+            <div class="row-actions">
+              <a class="btn" href="/admin/locations?edit_id={{ location.id }}">{{ t('locations.edit_button', lang) }}</a>
+              <form method="post" action="/admin/locations/{{ location.id }}/toggle">
+                {% if location.is_active %}
+                <button type="submit" class="btn btn-secondary">{{ t('menu.disable', lang) }}</button>
+                {% else %}
+                <button type="submit" class="btn btn-secondary">{{ t('menu.enable', lang) }}</button>
+                {% endif %}
+              </form>
+            </div>
           </td>
         </tr>
         {% endfor %}

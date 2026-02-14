@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('location_requests.title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('location_requests.title', lang) }}</h1>
+  <p class="lead">{{ t('location_requests.lead', lang) }}</p>
+</header>
+{% if message %}<p class="alert alert-success" role="status">{{ message }}</p>{% endif %}
+
+<section class="card stack-md">
+  <h2>{{ t('location_requests.form_title', lang) }}</h2>
+  <form method="post" action="/restaurant/locations/request" class="stack-md">
+    <label class="field"><span>{{ t('locations.company_name', lang) }}</span><input type="text" name="company_name" required /></label>
+    <label class="field"><span>{{ t('locations.address', lang) }}</span><input type="text" name="address" required /></label>
+    <label class="field"><span>{{ t('location_requests.notes', lang) }}</span><textarea name="notes" rows="3"></textarea></label>
+    <button type="submit" class="btn btn-primary">{{ t('location_requests.submit', lang) }}</button>
+  </form>
+</section>
+
+<section class="card stack-md top-gap-sm">
+  <h2>{{ t('location_requests.my_requests', lang) }}</h2>
+  {% if requests %}
+  <div class="table-wrap">
+    <table class="simple-table">
+      <thead><tr><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('location_requests.status', lang) }}</th></tr></thead>
+      <tbody>
+      {% for item in requests %}
+      <tr>
+        <td>{{ item.company_name }}</td>
+        <td>{{ item.address }}</td>
+        <td>{{ item.notes or '-' }}</td>
+        <td>{{ item.status }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p>{{ t('location_requests.empty', lang) }}</p>{% endif %}
+</section>
+{% endblock %}

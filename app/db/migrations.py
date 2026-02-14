@@ -123,6 +123,25 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             )
             table_names.add("restaurant_locations")
 
+        if "location_requests" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE location_requests (
+                        id INTEGER PRIMARY KEY,
+                        restaurant_id INTEGER NOT NULL,
+                        company_name VARCHAR(255) NOT NULL,
+                        address VARCHAR(255) NOT NULL,
+                        notes VARCHAR(500) NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        created_at DATETIME NOT NULL,
+                        reviewed_by INTEGER NULL
+                    )
+                    """
+                )
+            )
+            table_names.add("location_requests")
+
         if "locations" in table_names:
             location_columns: set[str] = _sqlite_column_names(connection, "locations")
             if "created_at" not in location_columns:
@@ -224,7 +243,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                         {
                             "company_name": "Legacy Location",
                             "address": "Unknown Address",
-                            "is_active": True,
+                            "is_active": False,
                             "created_at": now_iso,
                         },
                     )
@@ -272,6 +291,19 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_restaurant_location "
                     "ON restaurant_locations(restaurant_id, location_id)"
+                )
+            )
+
+
+        if "locations" in table_names:
+            connection.execute(
+                text(
+                    """
+                    UPDATE locations
+                    SET is_active = 0
+                    WHERE lower(company_name) LIKE '%legacy%'
+                       OR lower(address) LIKE '%unknown%'
+                    """
                 )
             )
 

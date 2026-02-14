@@ -29,6 +29,7 @@ from app.models import (
     CatalogItem,
     DailyMenuItem,
     Location,
+    LocationRequest,
     Order,
     OrderItem,
     Restaurant,
@@ -200,6 +201,13 @@ def _require_admin_user(request: Request, db: Session) -> User | RedirectRespons
     if user.role != "admin":
         return _forbidden_settings_access(request)
     return user
+
+
+def _is_legacy_location(location: Location) -> bool:
+    """Return True when a location represents legacy placeholder data."""
+    company_name = location.company_name.lower()
+    address = location.address.lower()
+    return "legacy" in company_name or "unknown" in address
 
 
 def _build_order_summary_rows(db: Session, orders: list[Order]) -> list[dict[str, object]]:
@@ -1167,7 +1175,12 @@ async def admin_opening_hours_save(request: Request) -> Response:
 
 
 @app.get("/admin/locations", include_in_schema=False, response_class=HTMLResponse)
-def admin_locations_page(request: Request, message: str | None = None) -> Response:
+def admin_locations_page(
+    request: Request,
+    message: str | None = None,
+    query: str | None = None,
+    edit_id: int | None = None,
+) -> Response:
     """Render locations management page for admin users."""
     db: Session = db_session.SessionLocal()
     try:
@@ -1175,7 +1188,17 @@ def admin_locations_page(request: Request, message: str | None = None) -> Respon
         if isinstance(user_or_response, RedirectResponse):
             return user_or_response
 
-        locations: list[Location] = db.query(Location).order_by(Location.id.asc()).all()
+        search_value: str = (query or "").strip()
+        locations_query = db.query(Location)
+        if search_value:
+            pattern = f"%{search_value}%"
+            locations_query = locations_query.filter(
+                (Location.company_name.ilike(pattern)) | (Location.address.ilike(pattern))
+            )
+        locations: list[Location] = locations_query.order_by(Location.company_name.asc(), Location.address.asc()).all()
+        editing_location: Location | None = None
+        if edit_id is not None:
+            editing_location = db.query(Location).filter(Location.id == edit_id).first()
         return templates.TemplateResponse(
             "admin_locations.html",
             _template_context(
@@ -1183,6 +1206,8 @@ def admin_locations_page(request: Request, message: str | None = None) -> Respon
                 current_user=user_or_response,
                 message=message,
                 locations=locations,
+                query=search_value,
+                editing_location=editing_location,
             ),
         )
     finally:
@@ -1232,6 +1257,54 @@ async def admin_locations_create(request: Request) -> Response:
         db.close()
 
     message = t("locations.success.created", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/locations/{location_id}", include_in_schema=False)
+async def admin_locations_update(request: Request, location_id: int) -> Response:
+    """Update an existing location from admin form submission."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    company_name: str = form_data.get("company_name", [""])[0].strip()
+    address: str = form_data.get("address", [""])[0].strip()
+    delivery_time_start_raw: str = form_data.get("delivery_time_start", [""])[0]
+    delivery_time_end_raw: str = form_data.get("delivery_time_end", [""])[0]
+    cutoff_time_raw: str = form_data.get("cutoff_time", [""])[0]
+    is_active: bool = form_data.get("is_active", [""])[0] == "on"
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        location: Location | None = db.query(Location).filter(Location.id == location_id).first()
+        if location is None:
+            return RedirectResponse(url="/admin/locations", status_code=status.HTTP_303_SEE_OTHER)
+
+        if not company_name or not address:
+            message = t("locations.error.required_fields", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}&edit_id={location_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+        try:
+            delivery_time_start = _parse_location_time(delivery_time_start_raw)
+            delivery_time_end = _parse_location_time(delivery_time_end_raw)
+            cutoff_time = _parse_location_time(cutoff_time_raw)
+        except ValueError:
+            message = t("locations.error.invalid_time", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/admin/locations?message={message}&edit_id={location_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+        location.company_name = company_name
+        location.address = address
+        location.delivery_time_start = delivery_time_start
+        location.delivery_time_end = delivery_time_end
+        location.cutoff_time = cutoff_time
+        location.is_active = is_active
+        db.add(location)
+        db.commit()
+    finally:
+        db.close()
+
+    message = t("locations.success.updated", get_language(request)).replace(" ", "+")
     return RedirectResponse(url=f"/admin/locations?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -1430,7 +1503,12 @@ async def restaurant_opening_hours_save(request: Request) -> Response:
 
 
 @app.get("/restaurant/coverage", include_in_schema=False, response_class=HTMLResponse)
-def restaurant_coverage_page(request: Request, message: str | None = None) -> Response:
+def restaurant_coverage_page(
+    request: Request,
+    message: str | None = None,
+    assigned_only: bool = False,
+    show_inactive: bool = False,
+) -> Response:
     db: Session = db_session.SessionLocal()
     try:
         user_or_response = _require_menu_manager_user(request, db)
@@ -1441,12 +1519,21 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
         restaurant = _require_catering_restaurant(user_or_response, db)
         selected_location_id_raw = request.query_params.get("location_id", "")
         selected_location_id = int(selected_location_id_raw) if selected_location_id_raw.isdigit() else None
-        locations = db.query(Location).order_by(Location.company_name.asc()).all()
+        locations_query = db.query(Location)
+        if show_inactive:
+            locations_query = locations_query.filter(Location.is_active.is_(False))
+        else:
+            locations_query = locations_query.filter(Location.is_active.is_(True))
+        locations = locations_query.order_by(Location.company_name.asc()).all()
         mappings = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id).all()
         mapping_by_location = {m.location_id: m for m in mappings}
         coverage_rows: list[dict[str, object]] = []
         for location in locations:
+            if _is_legacy_location(location) and not show_inactive:
+                continue
             mapping = mapping_by_location.get(location.id)
+            if assigned_only and (mapping is None or not mapping.is_active):
+                continue
             override_time = mapping.cut_off_time_override if mapping else None
             effective_cutoff = override_time or location.cutoff_time
             coverage_rows.append(
@@ -1470,6 +1557,8 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
                 selected_location_id=selected_location_id,
                 selected_mapping_active=selected_mapping.is_active if selected_mapping else False,
                 selected_override_time=selected_mapping.cut_off_time_override if selected_mapping else None,
+                assigned_only=assigned_only,
+                show_inactive=show_inactive,
                 message=message,
             ),
         )
@@ -1495,6 +1584,9 @@ async def restaurant_coverage_save(request: Request) -> Response:
         if user_or_response.role != "restaurant":
             return _forbidden_catering_access(request)
         restaurant = _require_catering_restaurant(user_or_response, db)
+        location = db.query(Location).filter(Location.id == int(location_id_raw)).first()
+        if location is None:
+            return RedirectResponse(url="/restaurant/coverage", status_code=status.HTTP_303_SEE_OTHER)
         mapping = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id, RestaurantLocation.location_id == int(location_id_raw)).first()
         if mapping is None:
             mapping = RestaurantLocation(
@@ -1513,6 +1605,153 @@ async def restaurant_coverage_save(request: Request) -> Response:
     finally:
         db.close()
     return RedirectResponse(url=f"/restaurant/coverage?location_id={location_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/restaurant/locations/request", include_in_schema=False, response_class=HTMLResponse)
+def restaurant_location_request_page(request: Request, message: str | None = None) -> Response:
+    """Render location request page for restaurant users."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        requests = (
+            db.query(LocationRequest)
+            .filter(LocationRequest.restaurant_id == restaurant.id)
+            .order_by(LocationRequest.created_at.desc())
+            .all()
+        )
+        return templates.TemplateResponse(
+            "restaurant_location_requests.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                requests=requests,
+                message=message,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/restaurant/locations/request", include_in_schema=False)
+async def restaurant_location_request_create(request: Request) -> Response:
+    """Create a location request for restaurant users."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    company_name: str = form_data.get("company_name", [""])[0].strip()
+    address: str = form_data.get("address", [""])[0].strip()
+    notes: str = form_data.get("notes", [""])[0].strip()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_menu_manager_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+        if user_or_response.role != "restaurant":
+            return _forbidden_catering_access(request)
+        restaurant = _require_catering_restaurant(user_or_response, db)
+        if not company_name or not address:
+            message = t("location_requests.error.required", get_language(request)).replace(" ", "+")
+            return RedirectResponse(url=f"/restaurant/locations/request?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+        db.add(
+            LocationRequest(
+                restaurant_id=restaurant.id,
+                company_name=company_name,
+                address=address,
+                notes=notes or None,
+                status="pending",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    message = t("location_requests.success.created", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/restaurant/locations/request?message={message}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/location-requests", include_in_schema=False, response_class=HTMLResponse)
+def admin_location_requests_page(request: Request, message: str | None = None) -> Response:
+    """Render admin review page for location requests."""
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        pending_requests = (
+            db.query(LocationRequest)
+            .filter(LocationRequest.status == "pending")
+            .order_by(LocationRequest.created_at.asc())
+            .all()
+        )
+        return templates.TemplateResponse(
+            "admin_location_requests.html",
+            _template_context(
+                request,
+                current_user=user_or_response,
+                requests=pending_requests,
+                message=message,
+            ),
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/location-requests/{request_id}/review", include_in_schema=False)
+async def admin_location_requests_review(request: Request, request_id: int) -> Response:
+    """Approve or reject a location request."""
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    action: str = form_data.get("action", [""])[0].strip()
+
+    db: Session = db_session.SessionLocal()
+    try:
+        user_or_response = _require_admin_user(request, db)
+        if isinstance(user_or_response, RedirectResponse):
+            return user_or_response
+
+        location_request: LocationRequest | None = db.query(LocationRequest).filter(LocationRequest.id == request_id).first()
+        if location_request is None or location_request.status != "pending":
+            return RedirectResponse(url="/admin/location-requests", status_code=status.HTTP_303_SEE_OTHER)
+
+        if action == "approve":
+            location = Location(
+                company_name=location_request.company_name,
+                address=location_request.address,
+                is_active=True,
+            )
+            db.add(location)
+            db.flush()
+            mapping = db.query(RestaurantLocation).filter(
+                RestaurantLocation.restaurant_id == location_request.restaurant_id,
+                RestaurantLocation.location_id == location.id,
+            ).first()
+            if mapping is None:
+                db.add(
+                    RestaurantLocation(
+                        restaurant_id=location_request.restaurant_id,
+                        location_id=location.id,
+                        is_active=True,
+                    )
+                )
+            else:
+                mapping.is_active = True
+            location_request.status = "approved"
+        else:
+            location_request.status = "rejected"
+
+        location_request.reviewed_by = user_or_response.id
+        db.add(location_request)
+        db.commit()
+    finally:
+        db.close()
+
+    message = t("location_requests.success.reviewed", get_language(request)).replace(" ", "+")
+    return RedirectResponse(url=f"/admin/location-requests?message={message}", status_code=status.HTTP_303_SEE_OTHER)
 
 @app.post("/dev/promote-admin", include_in_schema=False)
 async def dev_promote_admin(request: Request) -> Response:

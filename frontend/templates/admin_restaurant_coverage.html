@@ -16,7 +16,7 @@
   <section class="section">
     <h2 class="section-title">{{ t('coverage.restaurant', lang) }}</h2>
     <div class="form-card">
-      <form method="get" action="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}" class="stack-md">
+      <form method="get" action="/admin/restaurant-coverage" class="stack-md">
         <label class="field"><span>{{ t('coverage.restaurant', lang) }}</span>
           <select class="input" name="restaurant_id" onchange="this.form.submit()">
             {% for restaurant in restaurants %}
@@ -25,6 +25,20 @@
           </select>
         </label>
       </form>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if current_user.role == "restaurant" %}
+  <section class="section">
+    <h2 class="section-title">{{ t('coverage.filters', lang) }}</h2>
+    <div class="form-card">
+      <form method="get" action="/restaurant/coverage" class="stack-md">
+        <label class="field-inline"><input type="checkbox" name="assigned_only" value="1" {% if assigned_only %}checked{% endif %}/> {{ t('coverage.filter.assigned_only', lang) }}</label>
+        <label class="field-inline"><input type="checkbox" name="show_inactive" value="1" {% if show_inactive %}checked{% endif %}/> {{ t('coverage.filter.show_inactive', lang) }}</label>
+        <button class="btn btn-secondary" type="submit">{{ t('coverage.apply_filters', lang) }}</button>
+      </form>
+      <a href="/restaurant/locations/request">{{ t('location_requests.link', lang) }}</a>
     </div>
   </section>
   {% endif %}
@@ -45,17 +59,11 @@
         <tbody>
           {% for row in coverage_rows %}
           <tr>
-            <td>{{ row.location.company_name }} — {{ row.location.address }}</td>
+            <td>{{ row.location.company_name }} — {{ row.location.address }} {% if not row.location.is_active %}<span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>{% endif %}</td>
             <td>{{ t('coverage.yes', lang) if row.mapping_active else t('coverage.no', lang) }}</td>
             <td>{{ row.override_time.strftime('%H:%M') if row.override_time else '—' }}</td>
             <td>{{ row.effective_cutoff_time.strftime('%H:%M') if row.effective_cutoff_time else '—' }}</td>
-            <td>
-              <a
-                href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}"
-              >
-                {{ t('coverage.edit', lang) }}
-              </a>
-            </td>
+            <td><a href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}">{{ t('coverage.edit', lang) }}</a></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -78,15 +86,9 @@
         </label>
         <input type="hidden" name="mapping_active_present" value="1" />
         <label class="field-inline"><input type="checkbox" name="mapping_active" {% if selected_mapping_active %}checked{% endif %}/> {{ t('coverage.active_mapping', lang) }}</label>
-        <label class="field">
-          <span>{{ t('coverage.cutoff_override', lang) }}</span>
-          <input class="input" type="time" name="cut_off_override" value="{{ selected_override_time.strftime('%H:%M') if selected_override_time else '' }}" />
-        </label>
+        <label class="field"><span>{{ t('coverage.cutoff_override', lang) }}</span><input class="input" type="time" name="cut_off_override" value="{{ selected_override_time.strftime('%H:%M') if selected_override_time else '' }}" /></label>
         <p class="muted">{{ t('coverage.hint', lang) }}</p>
-        <div class="actions-row">
-          <button type="submit" name="action" value="save" class="btn btn--secondary">{{ t('coverage.save', lang) }}</button>
-          <button type="submit" name="action" value="clear_override" class="btn">{{ t('coverage.clear_override', lang) }}</button>
-        </div>
+        <div class="actions-row"><button type="submit" name="action" value="save" class="btn btn--secondary">{{ t('coverage.save', lang) }}</button><button type="submit" name="action" value="clear_override" class="btn">{{ t('coverage.clear_override', lang) }}</button></div>
       </form>
     </div>
   </section>

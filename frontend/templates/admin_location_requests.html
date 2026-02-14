@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('location_requests.admin_title', lang) }}{% endblock %}
+
+{% block content %}
+<header class="stack-md">
+  <h1>{{ t('location_requests.admin_title', lang) }}</h1>
+  <p class="lead">{{ t('location_requests.admin_lead', lang) }}</p>
+</header>
+{% if message %}<p class="alert alert-success" role="status">{{ message }}</p>{% endif %}
+
+<section class="card stack-md">
+  {% if requests %}
+  <div class="table-wrap">
+    <table class="simple-table">
+      <thead><tr><th>{{ t('coverage.restaurant', lang) }}</th><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('settings.column_action', lang) }}</th></tr></thead>
+      <tbody>
+      {% for item in requests %}
+      <tr>
+        <td>#{{ item.restaurant_id }}</td>
+        <td>{{ item.company_name }}</td>
+        <td>{{ item.address }}</td>
+        <td>{{ item.notes or '-' }}</td>
+        <td>
+          <div class="row-actions">
+            <form method="post" action="/admin/location-requests/{{ item.id }}/review"><input type="hidden" name="action" value="approve" /><button type="submit" class="btn btn-primary">{{ t('location_requests.approve', lang) }}</button></form>
+            <form method="post" action="/admin/location-requests/{{ item.id }}/review"><input type="hidden" name="action" value="reject" /><button type="submit" class="btn btn-secondary">{{ t('location_requests.reject', lang) }}</button></form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p>{{ t('location_requests.admin_empty', lang) }}</p>{% endif %}
+</section>
+{% endblock %}
