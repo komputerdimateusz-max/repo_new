@@ -20,6 +20,7 @@ from app.models import (
     Restaurant,
     RestaurantLocation,
     RestaurantOpeningHours,
+    RestaurantPostalCode,
 )
 
 
@@ -45,6 +46,7 @@ def _seed_ordering_data(testing_session_local: sessionmaker) -> dict[str, int]:
         db.flush()
 
         db.add(RestaurantLocation(restaurant_id=restaurant.id, location_id=location.id, is_active=True))
+        db.add(RestaurantPostalCode(restaurant_id=restaurant.id, postal_code="66-400", is_active=True))
 
         dish = CatalogItem(name="Soup", description="Hot", price_cents=1200, is_active=True, restaurant_id=restaurant.id)
         db.add(dish)
@@ -52,7 +54,7 @@ def _seed_ordering_data(testing_session_local: sessionmaker) -> dict[str, int]:
 
         db.add(DailyMenuItem(menu_date=date.today(), catalog_item_id=dish.id, is_active=True, restaurant_id=restaurant.id))
         db.commit()
-        return {"location_id": location.id, "restaurant_id": restaurant.id, "catalog_item_id": dish.id}
+        return {"location_id": location.id, "restaurant_id": restaurant.id, "catalog_item_id": dish.id, "postal_code": "66-400"}
 
 
 def _register_and_login(client: TestClient, email: str, role: str = "customer") -> None:
@@ -84,8 +86,10 @@ def test_order_page_lists_restaurants_without_location_selection(tmp_path: Path,
         response = client.get("/order")
 
     assert response.status_code == 200
-    assert "Soup House" in response.text
-    assert f'value="{ids["restaurant_id"]}"' in response.text
+    assert "Soup House" not in response.text
+    response_with_postal = client.get("/order?postal_code=66-400")
+    assert response_with_postal.status_code == 200
+    assert "Soup House" in response_with_postal.text
 
 
 def test_opening_hours_message_is_hidden_until_restaurant_selected(tmp_path: Path, monkeypatch) -> None:
@@ -110,9 +114,9 @@ def test_opening_hours_message_is_hidden_until_restaurant_selected(tmp_path: Pat
 
     with TestClient(app) as client:
         _register_and_login(client, "outsideget@example.com")
-        pre_select_response = client.get(f"/order?location_id={ids['location_id']}")
+        pre_select_response = client.get(f"/order?postal_code={ids['postal_code']}")
         selected_response = client.get(
-            f"/order?location_id={ids['location_id']}&restaurant_id={ids['restaurant_id']}"
+            f"/order?postal_code={ids['postal_code']}&restaurant_id={ids['restaurant_id']}"
         )
 
     assert pre_select_response.status_code == 200
@@ -130,7 +134,7 @@ def test_show_open_only_filter_hides_closed_restaurants(tmp_path: Path, monkeypa
     monkeypatch.setattr("app.main._current_local_datetime", lambda: datetime(2025, 1, 1, 12, 0))
 
     with testing_session_local() as db:
-        location = Location(company_name="HQ", address="Main Street", is_active=True, cutoff_time=time(23, 59))
+        location = Location(company_name="HQ", address="Main Street", postal_code="66-400", is_active=True, cutoff_time=time(23, 59))
         db.add(location)
         db.flush()
 
@@ -155,15 +159,16 @@ def test_show_open_only_filter_hides_closed_restaurants(tmp_path: Path, monkeypa
                     ordering_close_time=time(14, 0),
                     is_active=True,
                 ),
+                RestaurantPostalCode(restaurant_id=open_restaurant.id, postal_code="66-400", is_active=True),
+                RestaurantPostalCode(restaurant_id=closed_restaurant.id, postal_code="66-400", is_active=True),
             ]
         )
         db.commit()
-        location_id = location.id
 
     with TestClient(app) as client:
         _register_and_login(client, "openonly@example.com")
-        full_response = client.get(f"/order?location_id={location_id}")
-        filtered_response = client.get(f"/order?location_id={location_id}&show_open_only=1")
+        full_response = client.get("/order?postal_code=66-400")
+        filtered_response = client.get("/order?postal_code=66-400&show_open_only=1")
 
     assert full_response.status_code == 200
     assert "Open Place" in full_response.text
@@ -203,6 +208,7 @@ def test_post_order_outside_window_returns_403_and_does_not_create_order(tmp_pat
             "/app/order",
             data={
                 "location_id": str(ids["location_id"]),
+                "postal_code": ids["postal_code"],
                 "restaurant_id": str(ids["restaurant_id"]),
                 f"qty_{ids['catalog_item_id']}": "1",
             },
@@ -283,3 +289,36 @@ def test_api_post_order_without_restaurant_returns_400(tmp_path: Path, monkeypat
         )
 
     assert response.status_code == 400
+
+
+def test_order_page_requires_valid_postal_code_format(tmp_path: Path, monkeypatch) -> None:
+    engine = _build_test_engine(tmp_path / "test_order_invalid_postal_code.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        _register_and_login(client, "invalidpostal@example.com")
+        response = client.get("/order?postal_code=66400")
+
+    assert response.status_code == 200
+    assert "Nieprawidłowy format kodu pocztowego" in response.text
+    assert "Select restaurant" in response.text
+
+
+def test_order_page_shows_no_restaurants_message_for_unserved_postal_code(tmp_path: Path, monkeypatch) -> None:
+    engine = _build_test_engine(tmp_path / "test_order_no_restaurants_for_postal.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    _seed_ordering_data(testing_session_local)
+
+    with TestClient(app) as client:
+        _register_and_login(client, "norestaurants@example.com")
+        response = client.get("/order?postal_code=77-777")
+
+    assert response.status_code == 200
+    assert "Brak restauracji obsługujących ten kod pocztowy." in response.text

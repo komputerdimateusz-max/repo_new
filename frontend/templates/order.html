@@ -26,6 +26,7 @@
 <section class="card stack-md" aria-label="Cut-off warning">
   <p class="alert alert-error" role="alert">{{ t('order.cutoff_prompt', lang) }}</p>
   <form method="post" action="/app/order" class="stack-md">
+    <input type="hidden" name="postal_code" value="{{ postal_code or '' }}" />
     <input type="hidden" name="location_id" value="{{ selected_location_id }}" />
     <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
     <input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />
@@ -44,47 +45,40 @@
 <section class="card stack-md" aria-label="{{ t('order.form_aria', lang) }}">
   <form method="get" action="/order" class="stack-md">
     <label class="field">
-      <span>{{ t('order.select_location', lang) }}</span>
-      <select name="location_id" required onchange="this.form.restaurant_id.value=''; this.form.submit()">
-        <option value="">{{ t('order.select_location_placeholder', lang) }}</option>
-        {% for location in locations %}
-        <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="field">
       <span>{{ t('menu.date', lang) }}</span>
       <input type="date" name="date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />
     </label>
     <label class="field">
+      <span>Kod pocztowy</span>
+      <input type="text" name="postal_code" value="{{ postal_code or '' }}" placeholder="np. 66-400" pattern="\d{2}-\d{3}" required />
+    </label>
+    <label class="field">
       <span>Restaurant</span>
-      {% if restaurants %}
-      <select name="restaurant_id">
+      <select name="restaurant_id" {% if not postal_code %}disabled{% endif %}>
         <option value="">Select restaurant</option>
         {% for row in restaurants %}
         <option value="{{ row.restaurant.id }}" {% if selected_restaurant_id == row.restaurant.id %}selected{% endif %}>{{ row.restaurant.name }}</option>
         {% endfor %}
       </select>
-      {% else %}
-      <select name="restaurant_id" disabled>
-        <option value="">Najpierw wybierz lokalizację</option>
-      </select>
-      {% endif %}
     </label>
-    {% if selected_location_id %}
+    {% if postal_code %}
     <label>
       <input type="checkbox" name="show_open_only" value="1" {% if show_open_only %}checked{% endif %}>
       Wyświetlaj tylko otwarte
     </label>
     {% endif %}
-    <button type="submit" class="btn btn-secondary">{{ t('menu.load_date', lang) }}</button>
+    <button type="submit" class="btn btn-secondary" {% if not postal_code %}disabled{% endif %}>Wczytaj menu</button>
   </form>
+
+  {% if postal_code and not restaurants %}
+  <p>Brak restauracji obsługujących ten kod pocztowy.</p>
+  {% endif %}
 
   {% if restaurants %}
   <div class="stack-sm">
     {% for row in restaurants %}
     <div>
-      <a class="text-link" href="/order?location_id={{ selected_location_id }}&date={{ selected_date.isoformat() }}&restaurant_id={{ row.restaurant.id }}{% if show_open_only %}&show_open_only=1{% endif %}">{{ row.restaurant.name }}</a>
+      <strong>{{ row.restaurant.name }}</strong>
       <span class="badge {% if row.open_now %}badge-active{% else %}badge-inactive{% endif %}">{% if row.open_now %}OTWARTE{% else %}ZAMKNIĘTE{% endif %}</span>
     </div>
     {% endfor %}
@@ -96,6 +90,7 @@
   <form method="post" action="/app/order" class="stack-md">
     <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
     <input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />
+    <input type="hidden" name="postal_code" value="{{ postal_code or '' }}" />
     <label class="field">
       <span>{{ t('order.select_location', lang) }}</span>
       <select name="location_id" required>
