@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
 from app.models.menu import CatalogItem, DailyMenuItem
+from app.models.restaurant import Restaurant
 
 
 def _build_test_engine(db_file: Path) -> Engine:
@@ -63,13 +64,17 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
 
     setup_session: Session = testing_session_local()
     try:
-        catalog_item = CatalogItem(name="Today Soup", description="Fresh", price_cents=1000, is_active=True)
+        restaurant = Restaurant(name="Test R", is_active=True)
+        setup_session.add(restaurant)
+        setup_session.flush()
+        catalog_item = CatalogItem(name="Today Soup", description="Fresh", price_cents=1000, is_active=True, restaurant_id=restaurant.id)
         setup_session.add(catalog_item)
         setup_session.flush()
         setup_session.add(
             DailyMenuItem(
                 menu_date=date.today(),
                 catalog_item_id=catalog_item.id,
+                restaurant_id=restaurant.id,
                 is_active=True,
             )
         )
@@ -77,6 +82,7 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
             DailyMenuItem(
                 menu_date=date.today() - timedelta(days=1),
                 catalog_item_id=catalog_item.id,
+                restaurant_id=restaurant.id,
                 is_active=True,
             )
         )
@@ -85,7 +91,7 @@ def test_get_catering_menu_as_catering_returns_ok(tmp_path: Path, monkeypatch) -
         setup_session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "catering-ui@example.com", "restaurant")
+        _login_with_role(client, "catering-ui@example.com", "admin")
         response = client.get("/catering/menu")
 
     assert response.status_code == 200
@@ -126,6 +132,51 @@ def test_post_catering_menu_creates_catalog_item_and_redirects(tmp_path: Path, m
         session.close()
 
 
+
+def test_standard_catalog_item_is_marked_and_toggles_global_activity(tmp_path: Path, monkeypatch) -> None:
+    engine = _build_test_engine(tmp_path / "test_catering_menu_standard.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    session: Session = testing_session_local()
+    try:
+        restaurant = Restaurant(name="Test R", is_active=True)
+        session.add(restaurant)
+        session.flush()
+        standard = CatalogItem(name="Rosół", description="Domowy", price_cents=1700, is_active=True, is_standard=True, restaurant_id=restaurant.id)
+        session.add(standard)
+        session.commit()
+        catalog_item_id: int = standard.id
+    finally:
+        session.close()
+
+    with TestClient(app) as client:
+        _login_with_role(client, "catering-standard@example.com", "admin")
+        page = client.get("/catering/menu")
+        assert page.status_code == 200
+        assert "Standard (always in menu)" in page.text
+        assert "Enable for today" not in page.text
+
+        toggle = client.post(f"/catering/menu/{catalog_item_id}/toggle", follow_redirects=False)
+        assert toggle.status_code == 303
+
+    verify_session: Session = testing_session_local()
+    try:
+        updated_catalog = verify_session.query(CatalogItem).filter(CatalogItem.id == catalog_item_id).first()
+        assert updated_catalog is not None
+        assert updated_catalog.is_active is False
+        daily_row = (
+            verify_session.query(DailyMenuItem)
+            .filter(DailyMenuItem.catalog_item_id == catalog_item_id, DailyMenuItem.menu_date == date.today())
+            .first()
+        )
+        assert daily_row is None
+    finally:
+        verify_session.close()
+
 def test_post_toggle_changes_daily_is_active(tmp_path: Path, monkeypatch) -> None:
     engine = _build_test_engine(tmp_path / "test_catering_menu_toggle.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -136,10 +187,13 @@ def test_post_toggle_changes_daily_is_active(tmp_path: Path, monkeypatch) -> Non
 
     session: Session = testing_session_local()
     try:
-        catalog_item = CatalogItem(name="Kotlet", description="Schabowy", price_cents=2200, is_active=True)
+        restaurant = Restaurant(name="Test R", is_active=True)
+        session.add(restaurant)
+        session.flush()
+        catalog_item = CatalogItem(name="Kotlet", description="Schabowy", price_cents=2200, is_active=True, restaurant_id=restaurant.id)
         session.add(catalog_item)
         session.flush()
-        daily_item = DailyMenuItem(menu_date=date.today(), catalog_item_id=catalog_item.id, is_active=True)
+        daily_item = DailyMenuItem(menu_date=date.today(), catalog_item_id=catalog_item.id, restaurant_id=restaurant.id, is_active=True)
         session.add(daily_item)
         session.commit()
         catalog_item_id: int = catalog_item.id
@@ -147,7 +201,7 @@ def test_post_toggle_changes_daily_is_active(tmp_path: Path, monkeypatch) -> Non
         session.close()
 
     with TestClient(app) as client:
-        _login_with_role(client, "catering-toggle@example.com", "restaurant")
+        _login_with_role(client, "catering-toggle@example.com", "admin")
         response = client.post(
             f"/catering/menu/{catalog_item_id}/toggle",
             follow_redirects=False,

@@ -38,8 +38,8 @@ def _register_and_login(client: TestClient, email: str, role: str) -> None:
     assert login_response.status_code == 303
 
 
-def test_weekly_menu_enable_standard_and_ordering_flow(tmp_path: Path, monkeypatch) -> None:
-    """Admin can schedule future menu and employee can order it with date filter."""
+def test_weekly_menu_standard_item_is_orderable_without_daily_activation(tmp_path: Path, monkeypatch) -> None:
+    """Standard dishes are orderable without creating a daily activation row."""
     engine = _build_test_engine(tmp_path / "test_weekly_menu_flow.db")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -79,27 +79,13 @@ def test_weekly_menu_enable_standard_and_ordering_flow(tmp_path: Path, monkeypat
         )
         assert create_catalog.status_code == 303
 
-        enable_standard = admin_client.post(
-            "/admin/weekly-menu/enable-standard",
-            data={"selected_date": target_date.isoformat()},
-            follow_redirects=False,
-        )
-        assert enable_standard.status_code == 303
-
         with testing_session_local() as check_session:
-            catalog_id = check_session.execute(text("SELECT id FROM catalog_items WHERE name = 'Standard Soup'")).scalar_one()
-
-        api_login = admin_client.post(
-            "/api/v1/auth/login",
-            json={"email": "weekly-admin@example.com", "password": "secret123"},
-        )
-        token = api_login.json()["access_token"]
-        force_activation = admin_client.post(
-            "/api/v1/menu/activate",
-            json={"catalog_item_id": catalog_id, "menu_date": target_date.isoformat(), "is_active": True},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert force_activation.status_code == 200
+            catalog_id = check_session.execute(text("SELECT id FROM catalog_items WHERE name = 'Standard Soup'")) .scalar_one()
+            daily_count = check_session.execute(
+                text("SELECT COUNT(*) FROM daily_menu_items WHERE catalog_item_id = :catalog_id"),
+                {"catalog_id": catalog_id},
+            ).scalar_one()
+            assert daily_count == 0
 
     with TestClient(app) as employee_client:
         _register_and_login(employee_client, "weekly-employee@example.com", "customer")

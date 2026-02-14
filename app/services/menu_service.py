@@ -24,7 +24,7 @@ def get_menu_for_date(db: Session, target_date: date, restaurant_id: int) -> lis
 
 
 def list_today_active_daily_items(db: Session, menu_date: date, restaurant_id: int) -> list[DailyMenuItem]:
-    """Return active daily menu for target date based on catalog + daily status."""
+    """Return active daily menu rows for non-standard dishes."""
     return (
         db.query(DailyMenuItem)
         .join(CatalogItem, DailyMenuItem.catalog_item_id == CatalogItem.id)
@@ -33,10 +33,40 @@ def list_today_active_daily_items(db: Session, menu_date: date, restaurant_id: i
             DailyMenuItem.restaurant_id == restaurant_id,
             DailyMenuItem.is_active.is_(True),
             CatalogItem.is_active.is_(True),
+            CatalogItem.is_standard.is_(False),
         )
         .order_by(DailyMenuItem.id.asc())
         .all()
     )
+
+
+def list_standard_catalog_items(db: Session, restaurant_id: int) -> list[CatalogItem]:
+    """Return active standard catalog dishes for one restaurant."""
+    return (
+        db.query(CatalogItem)
+        .filter(
+            CatalogItem.restaurant_id == restaurant_id,
+            CatalogItem.is_standard.is_(True),
+            CatalogItem.is_active.is_(True),
+        )
+        .order_by(CatalogItem.id.asc())
+        .all()
+    )
+
+
+def list_available_catalog_items_for_date(db: Session, menu_date: date, restaurant_id: int) -> list[CatalogItem]:
+    """Return unique customer-visible menu items: active standard + active non-standard daily rows."""
+    standard_items: list[CatalogItem] = list_standard_catalog_items(db=db, restaurant_id=restaurant_id)
+    daily_rows: list[DailyMenuItem] = list_today_active_daily_items(db=db, menu_date=menu_date, restaurant_id=restaurant_id)
+
+    catalog_items: list[CatalogItem] = list(standard_items)
+    seen_ids: set[int] = {item.id for item in standard_items}
+    for row in daily_rows:
+        if row.catalog_item_id in seen_ids:
+            continue
+        catalog_items.append(row.catalog_item)
+        seen_ids.add(row.catalog_item_id)
+    return catalog_items
 
 
 def list_catalog_items(db: Session, restaurant_id: int) -> list[CatalogItem]:
@@ -110,39 +140,6 @@ def toggle_menu_item_active(db: Session, menu_item: DailyMenuItem) -> DailyMenuI
     db.commit()
     db.refresh(menu_item)
     return menu_item
-
-
-def enable_standard_for_date(db: Session, target_date: date, restaurant_id: int) -> int:
-    """Enable all standard catalog dishes for the provided date without duplicates."""
-    standard_items: list[CatalogItem] = (
-        db.query(CatalogItem)
-        .filter(
-            CatalogItem.restaurant_id == restaurant_id,
-            CatalogItem.is_standard.is_(True),
-            CatalogItem.is_active.is_(True),
-        )
-        .all()
-    )
-    if not standard_items:
-        return 0
-
-    existing_ids: set[int] = {
-        row.catalog_item_id
-        for row in db.query(DailyMenuItem)
-        .filter(DailyMenuItem.menu_date == target_date, DailyMenuItem.restaurant_id == restaurant_id)
-        .all()
-    }
-
-    created_count: int = 0
-    for item in standard_items:
-        if item.id in existing_ids:
-            continue
-        db.add(DailyMenuItem(menu_date=target_date, catalog_item_id=item.id, restaurant_id=restaurant_id, is_active=True))
-        created_count += 1
-
-    if created_count > 0:
-        db.commit()
-    return created_count
 
 
 def copy_menu(db: Session, from_date: date, to_date: date, restaurant_id: int) -> int:

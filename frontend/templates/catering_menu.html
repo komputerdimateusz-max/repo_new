@@ -63,10 +63,17 @@
             </div>
             <div class="menu-actions">
               <span class="badge {% if item.is_active %}badge-active{% else %}badge-inactive{% endif %}">{% if item.is_active %}{{ t('menu.status_active', lang) }}{% else %}{{ t('menu.status_inactive', lang) }}{% endif %}</span>
+              {% if item.is_standard %}
+              <span class="badge badge-active">{{ t('menu.standard_always_visible', lang) }}</span>
+              <form method="post" action="/catering/menu/{{ item.id }}/toggle">
+                <button type="submit" class="btn btn--secondary btn-inline">{% if item.is_active %}{{ t('menu.disable', lang) }}{% else %}{{ t('menu.enable', lang) }}{% endif %}</button>
+              </form>
+              {% else %}
               <span class="badge {% if item.id in enabled_today_ids %}badge-active{% else %}badge-inactive{% endif %}">{% if item.id in enabled_today_ids %}{{ t('menu.enabled_today', lang) }}{% else %}{{ t('menu.not_enabled_today', lang) }}{% endif %}</span>
               <form method="post" action="/catering/menu/{{ item.id }}/toggle">
                 <button type="submit" class="btn btn--secondary btn-inline">{% if item.id in enabled_today_ids %}{{ t('menu.disable_today', lang) }}{% else %}{{ t('menu.enable_today', lang) }}{% endif %}</button>
               </form>
+              {% endif %}
             </div>
           </div>
         </li>
@@ -81,11 +88,24 @@
   <section class="section">
     <h2 class="section-title">{{ t('menu.items_for_day', lang) }}</h2>
     <div class="form-card">
-      {% set active_today = today_items | selectattr('is_active') | list %}
-      {% if active_today %}
+      {% if standard_items %}
+      <h3 class="section-subtitle">{{ t('menu.standard_section', lang) }}</h3>
       <ul class="menu-list">
-        {% for daily in active_today %}
-        {% if daily.catalog_item.is_active %}
+        {% for item in standard_items %}
+        <li class="menu-list-item">
+          <strong>{{ item.name }}</strong>
+          {% if item.description %}<p>{{ item.description }}</p>{% endif %}
+          <p>{{ '%.2f'|format(item.price_cents / 100) }} PLN</p>
+          <span class="badge badge-active">{{ t('menu.standard_always_visible', lang) }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if daily_additional_items %}
+      <h3 class="section-subtitle">{{ t('menu.daily_extra_section', lang) }}</h3>
+      <ul class="menu-list">
+        {% for daily in daily_additional_items %}
         <li class="menu-list-item">
           <strong>{{ daily.catalog_item.name }}</strong>
           {% if daily.catalog_item.description %}<p>{{ daily.catalog_item.description }}</p>{% endif %}
@@ -94,10 +114,11 @@
             <button type="submit" class="btn btn--secondary btn-inline">{{ t('menu.disable_today', lang) }}</button>
           </form>
         </li>
-        {% endif %}
         {% endfor %}
       </ul>
-      {% else %}
+      {% endif %}
+
+      {% if not standard_items and not daily_additional_items %}
       <p>{{ t('menu.empty', lang) }}</p>
       {% endif %}
     </div>
