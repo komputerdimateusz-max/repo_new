@@ -13,13 +13,14 @@
   {% if requests %}
   <div class="table-wrap">
     <table class="simple-table">
-      <thead><tr><th>{{ t('coverage.restaurant', lang) }}</th><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('settings.column_action', lang) }}</th></tr></thead>
+      <thead><tr><th>{{ t('coverage.restaurant', lang) }}</th><th>{{ t('locations.company_name', lang) }}</th><th>{{ t('locations.address', lang) }}</th><th>{{ t('locations.postal_code', lang) }}</th><th>{{ t('location_requests.notes', lang) }}</th><th>{{ t('settings.column_action', lang) }}</th></tr></thead>
       <tbody>
       {% for item in requests %}
       <tr>
         <td>#{{ item.restaurant_id }}</td>
         <td>{{ item.company_name }}</td>
         <td>{{ item.address }}</td>
+        <td>{{ item.postal_code }}</td>
         <td>{{ item.notes or '-' }}</td>
         <td>
           <div class="row-actions">

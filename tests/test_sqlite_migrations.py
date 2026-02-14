@@ -113,6 +113,7 @@ def test_startup_migration_prevents_order_items_crash(tmp_path: Path, monkeypatc
             location = Location(
                 company_name="Migration Co",
                 address="Migration Street",
+                postal_code="22-222",
                 is_active=True,
                 cutoff_time=time(23, 59),
             )
@@ -157,3 +158,45 @@ def test_ensure_sqlite_schema_adds_order_status_columns(tmp_path: Path) -> None:
     assert "delivered_at" in columns
     assert "cancelled_at" in columns
     assert "created" not in migrated_statuses
+
+
+def test_ensure_sqlite_schema_adds_postal_code_columns(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_postal_columns.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE locations RENAME TO locations_old"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE locations (
+                    id INTEGER PRIMARY KEY,
+                    company_name VARCHAR(255) NOT NULL,
+                    address VARCHAR(255) NOT NULL,
+                    delivery_time_start TIME NULL,
+                    delivery_time_end TIME NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO locations (id, company_name, address, delivery_time_start, delivery_time_end, is_active, created_at)
+                SELECT id, company_name, address, delivery_time_start, delivery_time_end, is_active, created_at
+                FROM locations_old
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE locations_old"))
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        location_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(locations);"))}
+        request_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(location_requests);"))}
+
+    assert "postal_code" in location_columns
+    assert "postal_code" in request_columns

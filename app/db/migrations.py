@@ -66,6 +66,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                         id INTEGER PRIMARY KEY,
                         company_name VARCHAR(255) NOT NULL,
                         address VARCHAR(255) NOT NULL,
+                        postal_code VARCHAR(16) NULL,
                         delivery_time_start TIME NULL,
                         delivery_time_end TIME NULL,
                         is_active BOOLEAN NOT NULL DEFAULT 1,
@@ -132,6 +133,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                         restaurant_id INTEGER NOT NULL,
                         company_name VARCHAR(255) NOT NULL,
                         address VARCHAR(255) NOT NULL,
+                        postal_code VARCHAR(16) NOT NULL,
                         notes VARCHAR(500) NULL,
                         status VARCHAR(32) NOT NULL DEFAULT 'pending',
                         created_at DATETIME NOT NULL,
@@ -154,6 +156,21 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 )
             if "cutoff_time" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN cutoff_time TIME"))
+            if "postal_code" not in location_columns:
+                connection.execute(text("ALTER TABLE locations ADD COLUMN postal_code VARCHAR(16)"))
+                connection.execute(
+                    text(
+                        "UPDATE locations SET postal_code = '00-000' "
+                        "WHERE postal_code IS NULL OR TRIM(postal_code) = ''"
+                    )
+                )
+
+        if "location_requests" in table_names:
+            location_request_columns: set[str] = _sqlite_column_names(connection, "location_requests")
+            if "postal_code" not in location_request_columns:
+                connection.execute(
+                    text("ALTER TABLE location_requests ADD COLUMN postal_code VARCHAR(16) NOT NULL DEFAULT '00-000'")
+                )
 
         default_restaurant_id = _ensure_default_restaurant(connection)
 
