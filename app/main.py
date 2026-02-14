@@ -1300,10 +1300,40 @@ def admin_restaurant_coverage_page(request: Request, message: str | None = None)
             picked = db.query(Restaurant).filter(Restaurant.id == int(selected_restaurant_id)).first()
             if picked is not None:
                 restaurant = picked
+        selected_location_id_raw = request.query_params.get("location_id", "")
+        selected_location_id = int(selected_location_id_raw) if selected_location_id_raw.isdigit() else None
         locations = db.query(Location).order_by(Location.company_name.asc()).all()
         mappings = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id).all()
         mapping_by_location = {m.location_id: m for m in mappings}
-        return templates.TemplateResponse("admin_restaurant_coverage.html", _template_context(request, current_user=admin, restaurants=restaurants, selected_restaurant_id=restaurant.id, locations=locations, mapping_by_location=mapping_by_location, message=message))
+        coverage_rows: list[dict[str, object]] = []
+        for location in locations:
+            mapping = mapping_by_location.get(location.id)
+            override_time = mapping.cut_off_time_override if mapping else None
+            effective_cutoff = override_time or location.cutoff_time
+            coverage_rows.append(
+                {
+                    "location": location,
+                    "mapping_active": mapping.is_active if mapping else False,
+                    "override_time": override_time,
+                    "effective_cutoff_time": effective_cutoff,
+                }
+            )
+        selected_mapping = mapping_by_location.get(selected_location_id) if selected_location_id is not None else None
+        return templates.TemplateResponse(
+            "admin_restaurant_coverage.html",
+            _template_context(
+                request,
+                current_user=admin,
+                restaurants=restaurants,
+                selected_restaurant_id=restaurant.id,
+                locations=locations,
+                coverage_rows=coverage_rows,
+                selected_location_id=selected_location_id,
+                selected_mapping_active=selected_mapping.is_active if selected_mapping else False,
+                selected_override_time=selected_mapping.cut_off_time_override if selected_mapping else None,
+                message=message,
+            ),
+        )
     finally:
         db.close()
 
@@ -1313,8 +1343,10 @@ async def admin_restaurant_coverage_save(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     restaurant_id_raw = form_data.get("restaurant_id", [""])[0]
     location_id_raw = form_data.get("location_id", [""])[0]
-    is_active = form_data.get("is_active", [""])[0] == "on"
-    cut_off = form_data.get("cut_off_time_override", [""])[0].strip()
+    cut_off = form_data.get("cut_off_override", [""])[0].strip()
+    action = form_data.get("action", ["save"])[0]
+    mapping_active_included = form_data.get("mapping_active_present", [""])[0] == "1"
+    mapping_active = form_data.get("mapping_active", [""])[0] == "on"
     if not restaurant_id_raw.isdigit() or not location_id_raw.isdigit():
         return RedirectResponse(url="/admin/restaurant-coverage", status_code=status.HTTP_303_SEE_OTHER)
     db: Session = db_session.SessionLocal()
@@ -1324,15 +1356,22 @@ async def admin_restaurant_coverage_save(request: Request) -> Response:
             return admin
         mapping = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == int(restaurant_id_raw), RestaurantLocation.location_id == int(location_id_raw)).first()
         if mapping is None:
-            mapping = RestaurantLocation(restaurant_id=int(restaurant_id_raw), location_id=int(location_id_raw), is_active=is_active)
+            mapping = RestaurantLocation(
+                restaurant_id=int(restaurant_id_raw),
+                location_id=int(location_id_raw),
+                is_active=mapping_active if mapping_active_included else True,
+            )
             db.add(mapping)
+        elif mapping_active_included:
+            mapping.is_active = mapping_active
+        if action == "clear_override":
+            mapping.cut_off_time_override = None
         else:
-            mapping.is_active = is_active
-        mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
+            mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
         db.commit()
     finally:
         db.close()
-    return RedirectResponse(url=f"/admin/restaurant-coverage?restaurant_id={restaurant_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/admin/restaurant-coverage?restaurant_id={restaurant_id_raw}&location_id={location_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 
@@ -1400,9 +1439,25 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
         if user_or_response.role != "restaurant":
             return _forbidden_catering_access(request)
         restaurant = _require_catering_restaurant(user_or_response, db)
+        selected_location_id_raw = request.query_params.get("location_id", "")
+        selected_location_id = int(selected_location_id_raw) if selected_location_id_raw.isdigit() else None
         locations = db.query(Location).order_by(Location.company_name.asc()).all()
         mappings = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id).all()
         mapping_by_location = {m.location_id: m for m in mappings}
+        coverage_rows: list[dict[str, object]] = []
+        for location in locations:
+            mapping = mapping_by_location.get(location.id)
+            override_time = mapping.cut_off_time_override if mapping else None
+            effective_cutoff = override_time or location.cutoff_time
+            coverage_rows.append(
+                {
+                    "location": location,
+                    "mapping_active": mapping.is_active if mapping else False,
+                    "override_time": override_time,
+                    "effective_cutoff_time": effective_cutoff,
+                }
+            )
+        selected_mapping = mapping_by_location.get(selected_location_id) if selected_location_id is not None else None
         return templates.TemplateResponse(
             "admin_restaurant_coverage.html",
             _template_context(
@@ -1411,7 +1466,10 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
                 restaurants=[restaurant],
                 selected_restaurant_id=restaurant.id,
                 locations=locations,
-                mapping_by_location=mapping_by_location,
+                coverage_rows=coverage_rows,
+                selected_location_id=selected_location_id,
+                selected_mapping_active=selected_mapping.is_active if selected_mapping else False,
+                selected_override_time=selected_mapping.cut_off_time_override if selected_mapping else None,
                 message=message,
             ),
         )
@@ -1423,8 +1481,10 @@ def restaurant_coverage_page(request: Request, message: str | None = None) -> Re
 async def restaurant_coverage_save(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     location_id_raw = form_data.get("location_id", [""])[0]
-    is_active = form_data.get("is_active", [""])[0] == "on"
-    cut_off = form_data.get("cut_off_time_override", [""])[0].strip()
+    cut_off = form_data.get("cut_off_override", [""])[0].strip()
+    action = form_data.get("action", ["save"])[0]
+    mapping_active_included = form_data.get("mapping_active_present", [""])[0] == "1"
+    mapping_active = form_data.get("mapping_active", [""])[0] == "on"
     if not location_id_raw.isdigit():
         return RedirectResponse(url="/restaurant/coverage", status_code=status.HTTP_303_SEE_OTHER)
     db: Session = db_session.SessionLocal()
@@ -1437,15 +1497,22 @@ async def restaurant_coverage_save(request: Request) -> Response:
         restaurant = _require_catering_restaurant(user_or_response, db)
         mapping = db.query(RestaurantLocation).filter(RestaurantLocation.restaurant_id == restaurant.id, RestaurantLocation.location_id == int(location_id_raw)).first()
         if mapping is None:
-            mapping = RestaurantLocation(restaurant_id=restaurant.id, location_id=int(location_id_raw), is_active=is_active)
+            mapping = RestaurantLocation(
+                restaurant_id=restaurant.id,
+                location_id=int(location_id_raw),
+                is_active=mapping_active if mapping_active_included else True,
+            )
             db.add(mapping)
+        elif mapping_active_included:
+            mapping.is_active = mapping_active
+        if action == "clear_override":
+            mapping.cut_off_time_override = None
         else:
-            mapping.is_active = is_active
-        mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
+            mapping.cut_off_time_override = _parse_location_time(cut_off) if cut_off else None
         db.commit()
     finally:
         db.close()
-    return RedirectResponse(url="/restaurant/coverage", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/restaurant/coverage?location_id={location_id_raw}", status_code=status.HTTP_303_SEE_OTHER)
 
 @app.post("/dev/promote-admin", include_in_schema=False)
 async def dev_promote_admin(request: Request) -> Response:

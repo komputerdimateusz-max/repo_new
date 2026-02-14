@@ -30,21 +30,64 @@
   {% endif %}
 
   <section class="section">
-    <h2 class="section-title">Locations</h2>
-    <div class="stack-md">
-      {% for location in locations %}
-      {% set mapping = mapping_by_location.get(location.id) %}
-      <div class="form-card">
-        <form method="post" action="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}" class="stack-md">
-          {% if current_user.role == "admin" %}<input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />{% endif %}
-          <input type="hidden" name="location_id" value="{{ location.id }}" />
-          <strong class="text-wrap">{{ location.company_name }} — {{ location.address }}</strong>
-          <label class="field-inline"><input type="checkbox" name="is_active" {% if mapping and mapping.is_active %}checked{% endif %}/> Active mapping</label>
-          <label class="field"><span>Cutoff override</span><input class="input" type="time" name="cut_off_time_override" value="{{ mapping.cut_off_time_override.strftime('%H:%M') if mapping and mapping.cut_off_time_override else '' }}" /></label>
-          <button type="submit" class="btn btn--secondary">Save</button>
-        </form>
-      </div>
-      {% endfor %}
+    <h2 class="section-title">Current Cut-off per Location</h2>
+    <div class="form-card table-wrap">
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Location</th>
+            <th>Delivery active?</th>
+            <th>Cut-off override</th>
+            <th>Effective cut-off</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in coverage_rows %}
+          <tr>
+            <td>{{ row.location.company_name }} — {{ row.location.address }}</td>
+            <td>{{ 'Yes' if row.mapping_active else 'No' }}</td>
+            <td>{{ row.override_time.strftime('%H:%M') if row.override_time else '—' }}</td>
+            <td>{{ row.effective_cutoff_time.strftime('%H:%M') if row.effective_cutoff_time else '—' }}</td>
+            <td>
+              <a
+                href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}"
+              >
+                Edit
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Update cut-off</h2>
+    <div class="form-card">
+      <form method="post" action="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}" class="stack-md">
+        {% if current_user.role == "admin" %}<input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />{% endif %}
+        <label class="field"><span>Location</span>
+          <select class="input" name="location_id" required>
+            <option value="">Select location</option>
+            {% for location in locations %}
+            <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <input type="hidden" name="mapping_active_present" value="1" />
+        <label class="field-inline"><input type="checkbox" name="mapping_active" {% if selected_mapping_active %}checked{% endif %}/> Active mapping</label>
+        <label class="field">
+          <span>Cut-off override</span>
+          <input class="input" type="time" name="cut_off_override" value="{{ selected_override_time.strftime('%H:%M') if selected_override_time else '' }}" />
+        </label>
+        <p class="muted">Zostaw puste aby użyć domyślnego cut-off lokalizacji.</p>
+        <div class="actions-row">
+          <button type="submit" name="action" value="save" class="btn btn--secondary">Save</button>
+          <button type="submit" name="action" value="clear_override" class="btn">Clear override</button>
+        </div>
+      </form>
     </div>
   </section>
 </div>
