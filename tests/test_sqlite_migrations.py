@@ -196,7 +196,7 @@ def test_ensure_sqlite_schema_adds_postal_code_columns(tmp_path: Path) -> None:
 
     with engine.begin() as connection:
         location_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(locations);"))}
-        request_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(location_requests);"))}
+        postal_tables = {str(row[0]) for row in connection.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
 
     assert "postal_code" in location_columns
-    assert "postal_code" in request_columns
+    assert "restaurant_postal_codes" in postal_tables

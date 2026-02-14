@@ -31,20 +31,38 @@
 
   {% if current_user.role == "restaurant" %}
   <section class="section">
-    <h2 class="section-title">{{ t('coverage.filters', lang) }}</h2>
+    <h2 class="section-title">{{ t('coverage.served_postal_codes', lang) }}</h2>
     <div class="form-card">
-      <form method="get" action="/restaurant/coverage" class="filters">
-        <label class="filter-row">
-          <input type="checkbox" name="assigned_only" value="1" {% if assigned_only %}checked{% endif %}/>
-          <span>{{ t('coverage.filter.assigned_only', lang) }}</span>
+      {% if active_postal_codes %}
+      <p>{{ active_postal_codes | join(', ') }}</p>
+      {% else %}
+      <p>{{ t('coverage.no_served_postal_codes', lang) }}</p>
+      {% endif %}
+      <a href="/restaurant/postal-codes" class="btn btn-secondary">{{ t('coverage.manage_postal_codes', lang) }}</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('coverage.add_location', lang) }}</h2>
+    <div class="form-card">
+      {% if can_add_locations %}
+      <form method="post" action="/restaurant/coverage" class="stack-md">
+        <input type="hidden" name="action" value="add_location" />
+        <label class="field"><span>{{ t('locations.company_name', lang) }}</span><input class="input" name="company_name" required /></label>
+        <label class="field"><span>{{ t('locations.address', lang) }}</span><input class="input" name="address" required /></label>
+        <label class="field"><span>{{ t('locations.postal_code', lang) }}</span>
+          <select class="input" name="postal_code" required>
+            <option value="">{{ t('coverage.select_postal_code', lang) }}</option>
+            {% for code in active_postal_codes %}
+            <option value="{{ code }}">{{ code }}</option>
+            {% endfor %}
+          </select>
         </label>
-        <label class="filter-row">
-          <input type="checkbox" name="show_inactive" value="1" {% if show_inactive %}checked{% endif %}/>
-          <span>{{ t('coverage.filter.show_inactive', lang) }}</span>
-        </label>
-        <button class="btn btn-secondary" type="submit">{{ t('coverage.apply_filters', lang) }}</button>
-        <a href="/restaurant/locations/request">{{ t('location_requests.link', lang) }}</a>
+        <button type="submit" class="btn btn-primary">{{ t('coverage.add_location_submit', lang) }}</button>
       </form>
+      {% else %}
+      <p>{{ t('coverage.add_postal_code_first', lang) }}</p>
+      {% endif %}
     </div>
   </section>
   {% endif %}
@@ -65,7 +83,7 @@
         <tbody>
           {% for row in coverage_rows %}
           <tr>
-            <td>{{ row.location.company_name }} — {{ row.location.address }} {% if not row.location.is_active %}<span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>{% endif %}</td>
+            <td>{{ row.location.company_name }} — {{ row.location.address }} ({{ row.location.postal_code }}) {% if not row.location.is_active %}<span class="badge badge-muted">{{ t('menu.status_inactive', lang) }}</span>{% endif %}</td>
             <td>{{ t('coverage.yes', lang) if row.mapping_active else t('coverage.no', lang) }}</td>
             <td>{{ row.override_time.strftime('%H:%M') if row.override_time else '—' }}</td>
             <td>{{ row.effective_cutoff_time.strftime('%H:%M') if row.effective_cutoff_time else '—' }}</td>

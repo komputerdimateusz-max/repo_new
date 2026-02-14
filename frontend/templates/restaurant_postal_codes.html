@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}repo_new | {{ t('coverage.manage_postal_codes', lang) }}{% endblock %}
+
+{% block content %}
+<div class="page-container">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">{{ t('coverage.manage_postal_codes', lang) }}</h1>
+      <p class="page-subtitle">{{ t('coverage.postal_codes_subtitle', lang) }}</p>
+    </div>
+  </header>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('coverage.add_postal_code', lang) }}</h2>
+    <div class="form-card">
+      <form method="post" action="/restaurant/postal-codes" class="stack-md">
+        <label class="field"><span>{{ t('locations.postal_code', lang) }}</span><input class="input" name="postal_code" placeholder="00-000" pattern="\d{2}-\d{3}" required /></label>
+        <button type="submit" class="btn btn-primary">{{ t('coverage.add', lang) }}</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">{{ t('coverage.served_postal_codes', lang) }}</h2>
+    <div class="form-card table-wrap">
+      <table class="simple-table">
+        <thead><tr><th>{{ t('locations.postal_code', lang) }}</th><th>{{ t('coverage.delivery_active', lang) }}</th><th>{{ t('coverage.action', lang) }}</th></tr></thead>
+        <tbody>
+          {% for code in postal_codes %}
+          <tr>
+            <td>{{ code.postal_code }}</td>
+            <td>{{ t('coverage.yes', lang) if code.is_active else t('coverage.no', lang) }}</td>
+            <td>
+              <form method="post" action="/restaurant/postal-codes/{{ code.id }}/toggle">
+                <button type="submit" class="btn">{{ t('coverage.deactivate', lang) if code.is_active else t('coverage.activate', lang) }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

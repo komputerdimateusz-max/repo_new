@@ -24,6 +24,7 @@ class Restaurant(Base):
 
     opening_hours: Mapped[list["RestaurantOpeningHours"]] = relationship(back_populates="restaurant")
     location_mappings: Mapped[list["RestaurantLocation"]] = relationship(back_populates="restaurant")
+    postal_codes: Mapped[list["RestaurantPostalCode"]] = relationship(back_populates="restaurant")
 
 
 class RestaurantOpeningHours(Base):
@@ -55,3 +56,24 @@ class RestaurantLocation(Base):
     cut_off_time_override: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     restaurant: Mapped[Restaurant] = relationship(back_populates="location_mappings")
+
+
+class RestaurantPostalCode(Base):
+    """Delivery postal codes managed by a restaurant."""
+
+    __tablename__ = "restaurant_postal_codes"
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "postal_code", name="uq_restaurant_postal_code"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    restaurant_id: Mapped[int] = mapped_column(ForeignKey("restaurants.id"), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    restaurant: Mapped[Restaurant] = relationship(back_populates="postal_codes")
