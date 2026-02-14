@@ -12,6 +12,8 @@ from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
 from app.models.location import Location
+from app.models.menu import CatalogItem, DailyMenuItem
+from app.models.restaurant import Restaurant
 from app.models.app_setting import AppSetting
 
 
@@ -46,7 +48,7 @@ def test_catalog_item_creation_persists(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        headers = _auth_headers(client, "catering@example.com", "restaurant")
+        headers = _auth_headers(client, "catering@example.com", "admin")
         response = client.post(
             "/api/v1/menu/catalog",
             json={"name": "Soup", "description": "Tomato", "price_cents": 1299, "is_active": True},
@@ -105,7 +107,7 @@ def test_catalog_item_can_be_enabled_next_day_without_recreate(tmp_path: Path, m
     monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
 
     with TestClient(app) as client:
-        headers = _auth_headers(client, "catering-next@example.com", "restaurant")
+        headers = _auth_headers(client, "catering-next@example.com", "admin")
         catalog_create = client.post(
             "/api/v1/menu/catalog",
             json={"name": "Salad", "description": "Fresh", "price_cents": 1099, "is_active": True},
@@ -126,6 +128,76 @@ def test_catalog_item_can_be_enabled_next_day_without_recreate(tmp_path: Path, m
     assert len(catalog_list.json()) == 1
     assert catalog_list.json()[0]["name"] == "Salad"
 
+
+
+def test_today_menu_includes_standard_without_daily_activation_and_ignores_duplicate(tmp_path: Path, monkeypatch) -> None:
+    engine = _build_test_engine(tmp_path / "test_today_standard_menu.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as setup_session:
+        restaurant = Restaurant(name="R1", is_active=True)
+        setup_session.add(restaurant)
+        setup_session.flush()
+
+        standard = CatalogItem(
+            restaurant_id=restaurant.id,
+            name="Rosół",
+            description="",
+            price_cents=1500,
+            is_active=True,
+            is_standard=True,
+        )
+        extra = CatalogItem(
+            restaurant_id=restaurant.id,
+            name="Burger",
+            description="",
+            price_cents=2500,
+            is_active=True,
+            is_standard=False,
+        )
+        setup_session.add_all([standard, extra])
+        setup_session.flush()
+        setup_session.add_all(
+            [
+                DailyMenuItem(
+                    restaurant_id=restaurant.id,
+                    menu_date=date.today(),
+                    catalog_item_id=standard.id,
+                    is_active=True,
+                ),
+                DailyMenuItem(
+                    restaurant_id=restaurant.id,
+                    menu_date=date.today(),
+                    catalog_item_id=extra.id,
+                    is_active=True,
+                ),
+            ]
+        )
+        setup_session.commit()
+
+    with TestClient(app) as client:
+        today_response = client.get("/api/v1/menu/today")
+
+    assert today_response.status_code == 200
+    names = [item["name"] for item in today_response.json()]
+    assert names.count("Rosół") == 1
+    assert "Burger" in names
+
+    with testing_session_local() as setup_session:
+        standard_item = setup_session.query(CatalogItem).filter(CatalogItem.name == "Rosół").first()
+        assert standard_item is not None
+        standard_item.is_active = False
+        setup_session.add(standard_item)
+        setup_session.commit()
+
+    with TestClient(app) as client:
+        after_deactivate = client.get("/api/v1/menu/today")
+
+    assert after_deactivate.status_code == 200
+    assert "Rosół" not in [item["name"] for item in after_deactivate.json()]
 
 def test_post_orders_creates_order_and_get_me_returns_it(tmp_path: Path, monkeypatch) -> None:
     engine = _build_test_engine(tmp_path / "test_orders.db")

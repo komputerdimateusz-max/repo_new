@@ -117,17 +117,21 @@ def create_or_replace_order(
         if item.quantity < 1:
             raise HTTPException(status_code=400, detail="Quantity must be >= 1")
 
-        daily_item = (
-            db.query(DailyMenuItem)
-            .filter(
-                DailyMenuItem.menu_date == target_date,
-                DailyMenuItem.catalog_item_id == item.catalog_item_id,
-                DailyMenuItem.is_active.is_(True),
-            )
-            .first()
-        )
-        if daily_item is None or not catalog_item.is_active:
+        if not catalog_item.is_active:
             raise HTTPException(status_code=400, detail=f"Catalog item {item.catalog_item_id} is not available")
+
+        if not catalog_item.is_standard:
+            daily_item = (
+                db.query(DailyMenuItem)
+                .filter(
+                    DailyMenuItem.menu_date == target_date,
+                    DailyMenuItem.catalog_item_id == item.catalog_item_id,
+                    DailyMenuItem.is_active.is_(True),
+                )
+                .first()
+            )
+            if daily_item is None:
+                raise HTTPException(status_code=400, detail=f"Catalog item {item.catalog_item_id} is not available")
 
         db.add(
             OrderItem(

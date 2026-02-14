@@ -21,9 +21,9 @@ from app.services.menu_service import (
     activate_catalog_item_for_date,
     create_catalog_item,
     create_menu_item,
+    list_available_catalog_items_for_date,
     list_catalog_items,
     list_menu_items_for_date,
-    list_today_active_daily_items,
 )
 
 router: APIRouter = APIRouter()
@@ -62,6 +62,17 @@ def _serialize_daily_item(daily_item: DailyMenuItem) -> DailyMenuItemResponse:
     )
 
 
+def _serialize_catalog_item_for_date(catalog_item: CatalogItem, menu_date: date) -> DailyMenuItemResponse:
+    return DailyMenuItemResponse(
+        daily_id=-catalog_item.id,
+        catalog_item_id=catalog_item.id,
+        menu_date=menu_date,
+        is_active=True,
+        name=catalog_item.name,
+        description=catalog_item.description,
+        price_cents=catalog_item.price_cents,
+    )
+
 @router.get("/today", response_model=list[DailyMenuItemResponse])
 def get_today_menu(db: Session = Depends(get_db)) -> list[DailyMenuItemResponse]:
     """Return active menu items for today."""
@@ -69,8 +80,8 @@ def get_today_menu(db: Session = Depends(get_db)) -> list[DailyMenuItemResponse]
     restaurant_id = db.query(Restaurant.id).order_by(Restaurant.id.asc()).first()
     if restaurant_id is None:
         return []
-    rows = list_today_active_daily_items(db=db, menu_date=today, restaurant_id=restaurant_id[0])
-    return [_serialize_daily_item(row) for row in rows]
+    catalog_items = list_available_catalog_items_for_date(db=db, menu_date=today, restaurant_id=restaurant_id[0])
+    return [_serialize_catalog_item_for_date(item, today) for item in catalog_items]
 
 
 @router.post("/activate", response_model=DailyMenuItemResponse)

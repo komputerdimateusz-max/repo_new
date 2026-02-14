@@ -40,10 +40,6 @@
         <button type="submit" class="btn btn--primary">{{ t('weekly_menu.add_item', lang) }}</button>
       </form>
       <div class="row-actions">
-        <form method="post" action="/admin/weekly-menu/enable-standard">
-          <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
-          <button type="submit" class="btn btn--secondary">{{ t('weekly_menu.enable_standard', lang) }}</button>
-        </form>
         <form method="post" action="/admin/weekly-menu/copy" class="row-actions">
           <input type="hidden" name="selected_date" value="{{ selected_date.isoformat() }}" />
           <input class="input" type="date" name="from_date" value="{{ selected_date.isoformat() }}" min="{{ min_date.isoformat() }}" max="{{ max_date.isoformat() }}" />

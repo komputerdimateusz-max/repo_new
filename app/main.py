@@ -40,10 +40,10 @@ from app.services.menu_service import (
     activate_catalog_item_for_date,
     copy_menu,
     create_catalog_item,
-    enable_standard_for_date,
-    get_menu_for_date,
     list_catalog_items,
+    list_available_catalog_items_for_date,
     list_menu_items_for_date,
+    list_standard_catalog_items,
     toggle_menu_item_active,
 )
 from app.services.order_service import CutoffPassedError, resolve_target_order_date
@@ -380,9 +380,8 @@ def _parse_menu_price_to_cents(price_raw: str) -> int:
 
 
 def _list_catalog_items_for_date(db: Session, target_date: date, restaurant_id: int) -> list[CatalogItem]:
-    """Return catalog dishes that are enabled for the selected day and restaurant."""
-    daily_rows: list[DailyMenuItem] = get_menu_for_date(db=db, target_date=target_date, restaurant_id=restaurant_id)
-    return [row.catalog_item for row in daily_rows]
+    """Return catalog dishes visible in customer menu for selected date and restaurant."""
+    return list_available_catalog_items_for_date(db=db, menu_date=target_date, restaurant_id=restaurant_id)
 
 
 @app.on_event("startup")
@@ -1058,25 +1057,6 @@ def admin_weekly_menu_remove(request: Request, daily_item_id: int) -> Response:
     return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.post("/admin/weekly-menu/enable-standard", include_in_schema=False)
-async def admin_weekly_menu_enable_standard(request: Request) -> Response:
-    """Enable standard dishes for selected day."""
-    form_data = parse_qs((await request.body()).decode("utf-8"))
-    selected_date: date = _parse_horizon_date(form_data.get("selected_date", [None])[0])
-
-    db: Session = db_session.SessionLocal()
-    try:
-        user_or_response = _require_admin_user(request, db)
-        if isinstance(user_or_response, RedirectResponse):
-            return user_or_response
-
-        enable_standard_for_date(db=db, target_date=selected_date, restaurant_id=_get_default_restaurant(db).id)
-    finally:
-        db.close()
-
-    return RedirectResponse(url=f"/admin/weekly-menu?date={selected_date.isoformat()}", status_code=status.HTTP_303_SEE_OTHER)
-
-
 @app.post("/admin/weekly-menu/copy", include_in_schema=False)
 async def admin_weekly_menu_copy(request: Request) -> Response:
     """Copy menu from one date to another."""
@@ -1613,10 +1593,18 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
 
         restaurant = _require_catering_restaurant(user_or_response, db)
         catalog_items: list[CatalogItem] = list_catalog_items(db=db, restaurant_id=restaurant.id)
+        standard_items: list[CatalogItem] = list_standard_catalog_items(db=db, restaurant_id=restaurant.id)
         today_items: list[DailyMenuItem] = list_menu_items_for_date(db=db, menu_date=selected_date, restaurant_id=restaurant.id)
         enabled_today_ids: set[int] = {
-            item.catalog_item_id for item in today_items if item.is_active and item.catalog_item.is_active
+            item.catalog_item_id
+            for item in today_items
+            if item.is_active and item.catalog_item.is_active and not item.catalog_item.is_standard
         }
+        daily_additional_items: list[DailyMenuItem] = [
+            item
+            for item in today_items
+            if item.is_active and item.catalog_item.is_active and not item.catalog_item.is_standard
+        ]
         return templates.TemplateResponse(
             "catering_menu.html",
             _template_context(
@@ -1624,6 +1612,8 @@ def catering_menu_page(request: Request, message: str | None = None) -> HTMLResp
                 selected_date=selected_date,
                 catalog_items=catalog_items,
                 today_items=today_items,
+                standard_items=standard_items,
+                daily_additional_items=daily_additional_items,
                 enabled_today_ids=enabled_today_ids,
                 message=message,
                 error=None,
@@ -1669,6 +1659,8 @@ async def catering_menu_create(request: Request) -> Response:
                     selected_date=date.today(),
                     catalog_items=list_catalog_items(db=db, restaurant_id=restaurant.id),
                     today_items=list_menu_items_for_date(db=db, menu_date=date.today(), restaurant_id=restaurant.id),
+                    standard_items=list_standard_catalog_items(db=db, restaurant_id=restaurant.id),
+                    daily_additional_items=[],
                     enabled_today_ids=set(),
                     message=None,
                     error=error_message,
@@ -1688,6 +1680,8 @@ async def catering_menu_create(request: Request) -> Response:
                     selected_date=date.today(),
                     catalog_items=list_catalog_items(db=db, restaurant_id=restaurant.id),
                     today_items=list_menu_items_for_date(db=db, menu_date=date.today(), restaurant_id=restaurant.id),
+                    standard_items=list_standard_catalog_items(db=db, restaurant_id=restaurant.id),
+                    daily_additional_items=[],
                     enabled_today_ids=set(),
                     message=None,
                     error=error_message,
@@ -1703,6 +1697,7 @@ async def catering_menu_create(request: Request) -> Response:
             price_cents=price_cents,
             is_active=is_active,
             restaurant_id=restaurant.id,
+            is_standard=is_standard,
         )
     finally:
         db.close()
@@ -1727,25 +1722,30 @@ def catering_menu_toggle(request: Request, catalog_item_id: int) -> RedirectResp
         catalog_item = db.query(CatalogItem).filter(CatalogItem.id == catalog_item_id, CatalogItem.restaurant_id == restaurant.id).first()
         if catalog_item is None:
             return RedirectResponse(url="/catering/menu", status_code=status.HTTP_303_SEE_OTHER)
-        daily_item: DailyMenuItem | None = (
-            db.query(DailyMenuItem)
-            .filter(
-                DailyMenuItem.catalog_item_id == catalog_item_id,
-                DailyMenuItem.menu_date == date.today(),
-                DailyMenuItem.restaurant_id == restaurant.id,
-            )
-            .first()
-        )
-        if daily_item is None:
-            activate_catalog_item_for_date(
-                db=db,
-                catalog_item_id=catalog_item_id,
-                menu_date=date.today(),
-                restaurant_id=restaurant.id,
-                is_active=True,
-            )
+        if catalog_item.is_standard:
+            catalog_item.is_active = not catalog_item.is_active
+            db.add(catalog_item)
+            db.commit()
         else:
-            toggle_menu_item_active(db=db, menu_item=daily_item)
+            daily_item: DailyMenuItem | None = (
+                db.query(DailyMenuItem)
+                .filter(
+                    DailyMenuItem.catalog_item_id == catalog_item_id,
+                    DailyMenuItem.menu_date == date.today(),
+                    DailyMenuItem.restaurant_id == restaurant.id,
+                )
+                .first()
+            )
+            if daily_item is None:
+                activate_catalog_item_for_date(
+                    db=db,
+                    catalog_item_id=catalog_item_id,
+                    menu_date=date.today(),
+                    restaurant_id=restaurant.id,
+                    is_active=True,
+                )
+            else:
+                toggle_menu_item_active(db=db, menu_item=daily_item)
     finally:
         db.close()
 
