@@ -1,23 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}Restaurant Coverage · repo_new{% endblock %}
+{% block title %}{{ t('coverage.title', lang) }} · repo_new{% endblock %}
 
 {% block content %}
 <div class="page-container">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Restaurant delivery coverage</h1>
-      <p class="page-subtitle">Manage active delivery mappings and cut-off overrides.</p>
+      <h1 class="page-title">{{ t('coverage.title', lang) }}</h1>
+      <p class="page-subtitle">{{ t('coverage.subtitle', lang) }}</p>
     </div>
-    <span class="pill pill--accent">{% if current_user.role == 'restaurant' %}Restaurant{% else %}Administrator{% endif %}</span>
+    <span class="pill pill--accent">{% if current_user.role == 'restaurant' %}{{ t('coverage.role.restaurant', lang) }}{% else %}{{ t('coverage.role.admin', lang) }}{% endif %}</span>
   </header>
 
   {% if current_user.role == "admin" %}
   <section class="section">
-    <h2 class="section-title">Restaurant</h2>
+    <h2 class="section-title">{{ t('coverage.restaurant', lang) }}</h2>
     <div class="form-card">
       <form method="get" action="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}" class="stack-md">
-        <label class="field"><span>Restaurant</span>
+        <label class="field"><span>{{ t('coverage.restaurant', lang) }}</span>
           <select class="input" name="restaurant_id" onchange="this.form.submit()">
             {% for restaurant in restaurants %}
             <option value="{{ restaurant.id }}" {% if selected_restaurant_id == restaurant.id %}selected{% endif %}>{{ restaurant.name }}</option>
@@ -30,30 +30,30 @@
   {% endif %}
 
   <section class="section">
-    <h2 class="section-title">Current Cut-off per Location</h2>
+    <h2 class="section-title">{{ t('coverage.current_cutoff', lang) }}</h2>
     <div class="form-card table-wrap">
       <table class="simple-table">
         <thead>
           <tr>
-            <th>Location</th>
-            <th>Delivery active?</th>
-            <th>Cut-off override</th>
-            <th>Effective cut-off</th>
-            <th>Action</th>
+            <th>{{ t('coverage.location', lang) }}</th>
+            <th>{{ t('coverage.delivery_active', lang) }}</th>
+            <th>{{ t('coverage.cutoff_override', lang) }}</th>
+            <th>{{ t('coverage.effective_cutoff', lang) }}</th>
+            <th>{{ t('coverage.action', lang) }}</th>
           </tr>
         </thead>
         <tbody>
           {% for row in coverage_rows %}
           <tr>
             <td>{{ row.location.company_name }} — {{ row.location.address }}</td>
-            <td>{{ 'Yes' if row.mapping_active else 'No' }}</td>
+            <td>{{ t('coverage.yes', lang) if row.mapping_active else t('coverage.no', lang) }}</td>
             <td>{{ row.override_time.strftime('%H:%M') if row.override_time else '—' }}</td>
             <td>{{ row.effective_cutoff_time.strftime('%H:%M') if row.effective_cutoff_time else '—' }}</td>
             <td>
               <a
                 href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}"
               >
-                Edit
+                {{ t('coverage.edit', lang) }}
               </a>
             </td>
           </tr>
@@ -64,28 +64,28 @@
   </section>
 
   <section class="section">
-    <h2 class="section-title">Update cut-off</h2>
+    <h2 class="section-title">{{ t('coverage.update_cutoff', lang) }}</h2>
     <div class="form-card">
       <form method="post" action="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}" class="stack-md">
         {% if current_user.role == "admin" %}<input type="hidden" name="restaurant_id" value="{{ selected_restaurant_id }}" />{% endif %}
-        <label class="field"><span>Location</span>
+        <label class="field"><span>{{ t('coverage.location', lang) }}</span>
           <select class="input" name="location_id" required>
-            <option value="">Select location</option>
+            <option value="">{{ t('coverage.select_location', lang) }}</option>
             {% for location in locations %}
             <option value="{{ location.id }}" {% if selected_location_id == location.id %}selected{% endif %}>{{ location.company_name }} — {{ location.address }}</option>
             {% endfor %}
           </select>
         </label>
         <input type="hidden" name="mapping_active_present" value="1" />
-        <label class="field-inline"><input type="checkbox" name="mapping_active" {% if selected_mapping_active %}checked{% endif %}/> Active mapping</label>
+        <label class="field-inline"><input type="checkbox" name="mapping_active" {% if selected_mapping_active %}checked{% endif %}/> {{ t('coverage.active_mapping', lang) }}</label>
         <label class="field">
-          <span>Cut-off override</span>
+          <span>{{ t('coverage.cutoff_override', lang) }}</span>
           <input class="input" type="time" name="cut_off_override" value="{{ selected_override_time.strftime('%H:%M') if selected_override_time else '' }}" />
         </label>
-        <p class="muted">Zostaw puste aby użyć domyślnego cut-off lokalizacji.</p>
+        <p class="muted">{{ t('coverage.hint', lang) }}</p>
         <div class="actions-row">
-          <button type="submit" name="action" value="save" class="btn btn--secondary">Save</button>
-          <button type="submit" name="action" value="clear_override" class="btn">Clear override</button>
+          <button type="submit" name="action" value="save" class="btn btn--secondary">{{ t('coverage.save', lang) }}</button>
+          <button type="submit" name="action" value="clear_override" class="btn">{{ t('coverage.clear_override', lang) }}</button>
         </div>
       </form>
     </div>
