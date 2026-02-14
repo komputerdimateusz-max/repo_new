@@ -144,3 +144,118 @@ def test_coverage_post_can_clear_override_without_disabling_mapping(tmp_path: Pa
         assert updated.is_active is False
     finally:
         verify_session.close()
+
+
+def test_restaurant_can_remove_location_mapping_without_deleting_location(tmp_path: Path, monkeypatch) -> None:
+    """Remove endpoint should deactivate mapping and keep global location record."""
+    engine = _build_test_engine(tmp_path / "test_restaurant_coverage_remove.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    setup_session: Session = testing_session_local()
+    try:
+        restaurant = Restaurant(name="Resto", is_active=True)
+        location = Location(company_name="Gamma", address="Street 3", postal_code="33-333", is_active=True, cutoff_time=time(11, 0))
+        setup_session.add_all([restaurant, location])
+        setup_session.commit()
+        setup_session.add(
+            RestaurantLocation(
+                restaurant_id=restaurant.id,
+                location_id=location.id,
+                is_active=True,
+                cut_off_time_override=time(9, 30),
+            )
+        )
+        setup_session.commit()
+        restaurant_id = restaurant.id
+        location_id = location.id
+    finally:
+        setup_session.close()
+
+    with TestClient(app) as client:
+        _register_and_login_restaurant_user(client, restaurant_id)
+        response = client.post(
+            f"/restaurant/delivery-coverage/{location_id}/remove",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert "message=Usuni%C4%99to" in response.headers["location"]
+
+    verify_session: Session = testing_session_local()
+    try:
+        mapping = (
+            verify_session.query(RestaurantLocation)
+            .filter(
+                RestaurantLocation.restaurant_id == restaurant_id,
+                RestaurantLocation.location_id == location_id,
+            )
+            .first()
+        )
+        assert mapping is not None
+        assert mapping.is_active is False
+        assert mapping.cut_off_time_override is None
+
+        location = verify_session.query(Location).filter(Location.id == location_id).first()
+        assert location is not None
+    finally:
+        verify_session.close()
+
+
+
+def test_restaurant_cannot_remove_another_restaurant_mapping(tmp_path: Path, monkeypatch) -> None:
+    """Remove endpoint must be scoped by current restaurant id."""
+    engine = _build_test_engine(tmp_path / "test_restaurant_coverage_remove_scope.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    setup_session: Session = testing_session_local()
+    try:
+        restaurant_a = Restaurant(name="Resto A", is_active=True)
+        restaurant_b = Restaurant(name="Resto B", is_active=True)
+        location = Location(company_name="Delta", address="Street 4", postal_code="44-444", is_active=True, cutoff_time=time(11, 0))
+        setup_session.add_all([restaurant_a, restaurant_b, location])
+        setup_session.commit()
+        setup_session.add(
+            RestaurantLocation(
+                restaurant_id=restaurant_b.id,
+                location_id=location.id,
+                is_active=True,
+            )
+        )
+        setup_session.commit()
+        restaurant_a_id = restaurant_a.id
+        restaurant_b_id = restaurant_b.id
+        location_id = location.id
+    finally:
+        setup_session.close()
+
+    with TestClient(app) as client:
+        _register_and_login_restaurant_user(client, restaurant_a_id)
+        response = client.post(
+            f"/restaurant/delivery-coverage/{location_id}/remove",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 404
+
+    verify_session: Session = testing_session_local()
+    try:
+        mapping = (
+            verify_session.query(RestaurantLocation)
+            .filter(
+                RestaurantLocation.restaurant_id == restaurant_b_id,
+                RestaurantLocation.location_id == location_id,
+            )
+            .first()
+        )
+        assert mapping is not None
+        assert mapping.is_active is True
+    finally:
+        verify_session.close()

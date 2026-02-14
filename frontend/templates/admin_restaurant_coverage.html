@@ -69,6 +69,15 @@
 
   <section class="section">
     <h2 class="section-title">{{ t('coverage.current_cutoff', lang) }}</h2>
+    {% if current_user.role == "restaurant" %}
+    <div class="actions-row" style="margin-bottom: 0.75rem;">
+      {% if show_inactive %}
+      <a class="btn" href="/restaurant/coverage">{{ t('coverage.show_inactive', lang) }}: off</a>
+      {% else %}
+      <a class="btn" href="/restaurant/coverage?show_inactive=1">{{ t('coverage.show_inactive', lang) }}</a>
+      {% endif %}
+    </div>
+    {% endif %}
     <div class="form-card table-wrap">
       <table class="simple-table">
         <thead>
@@ -87,7 +96,20 @@
             <td>{{ t('coverage.yes', lang) if row.mapping_active else t('coverage.no', lang) }}</td>
             <td>{{ row.override_time.strftime('%H:%M') if row.override_time else '—' }}</td>
             <td>{{ row.effective_cutoff_time.strftime('%H:%M') if row.effective_cutoff_time else '—' }}</td>
-            <td><a href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}">{{ t('coverage.edit', lang) }}</a></td>
+            <td>
+              <a href="{{ '/restaurant/coverage' if current_user.role == 'restaurant' else '/admin/restaurant-coverage' }}?location_id={{ row.location.id }}{% if current_user.role == 'admin' %}&restaurant_id={{ selected_restaurant_id }}{% endif %}">{{ t('coverage.edit', lang) }}</a>
+              {% if current_user.role == 'restaurant' %}
+                {% if row.mapping_active %}
+                <form method="post" action="/restaurant/delivery-coverage/{{ row.location.id }}/remove" style="display:inline; margin-left: 0.5rem;">
+                  <button type="submit" class="btn btn-link">{{ t('coverage.remove', lang) }}</button>
+                </form>
+                {% else %}
+                <form method="post" action="/restaurant/delivery-coverage/{{ row.location.id }}/activate" style="display:inline; margin-left: 0.5rem;">
+                  <button type="submit" class="btn btn-link">{{ t('coverage.activate', lang) }}</button>
+                </form>
+                {% endif %}
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
