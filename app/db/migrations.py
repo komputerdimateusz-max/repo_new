@@ -66,7 +66,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                         id INTEGER PRIMARY KEY,
                         company_name VARCHAR(255) NOT NULL,
                         address VARCHAR(255) NOT NULL,
-                        postal_code VARCHAR(16) NULL,
+                        postal_code VARCHAR(16) NOT NULL DEFAULT '00-000',
                         delivery_time_start TIME NULL,
                         delivery_time_end TIME NULL,
                         is_active BOOLEAN NOT NULL DEFAULT 1,
@@ -124,25 +124,21 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             )
             table_names.add("restaurant_locations")
 
-        if "location_requests" not in table_names:
+        if "restaurant_postal_codes" not in table_names:
             connection.execute(
                 text(
                     """
-                    CREATE TABLE location_requests (
+                    CREATE TABLE restaurant_postal_codes (
                         id INTEGER PRIMARY KEY,
                         restaurant_id INTEGER NOT NULL,
-                        company_name VARCHAR(255) NOT NULL,
-                        address VARCHAR(255) NOT NULL,
-                        postal_code VARCHAR(16) NOT NULL,
-                        notes VARCHAR(500) NULL,
-                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
-                        created_at DATETIME NOT NULL,
-                        reviewed_by INTEGER NULL
+                        postal_code VARCHAR(16) NOT NULL DEFAULT '00-000',
+                        is_active BOOLEAN NOT NULL DEFAULT 1,
+                        created_at DATETIME NOT NULL
                     )
                     """
                 )
             )
-            table_names.add("location_requests")
+            table_names.add("restaurant_postal_codes")
 
         if "locations" in table_names:
             location_columns: set[str] = _sqlite_column_names(connection, "locations")
@@ -157,19 +153,12 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             if "cutoff_time" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN cutoff_time TIME"))
             if "postal_code" not in location_columns:
-                connection.execute(text("ALTER TABLE locations ADD COLUMN postal_code VARCHAR(16)"))
+                connection.execute(text("ALTER TABLE locations ADD COLUMN postal_code VARCHAR(16) DEFAULT '00-000'"))
                 connection.execute(
                     text(
                         "UPDATE locations SET postal_code = '00-000' "
                         "WHERE postal_code IS NULL OR TRIM(postal_code) = ''"
                     )
-                )
-
-        if "location_requests" in table_names:
-            location_request_columns: set[str] = _sqlite_column_names(connection, "location_requests")
-            if "postal_code" not in location_request_columns:
-                connection.execute(
-                    text("ALTER TABLE location_requests ADD COLUMN postal_code VARCHAR(16) NOT NULL DEFAULT '00-000'")
                 )
 
         default_restaurant_id = _ensure_default_restaurant(connection)
@@ -253,13 +242,14 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                     connection.execute(
                         text(
                             """
-                            INSERT INTO locations (company_name, address, is_active, created_at)
-                            VALUES (:company_name, :address, :is_active, :created_at)
+                            INSERT INTO locations (company_name, address, postal_code, is_active, created_at)
+                            VALUES (:company_name, :address, :postal_code, :is_active, :created_at)
                             """
                         ),
                         {
                             "company_name": "Legacy Location",
                             "address": "Unknown Address",
+                            "postal_code": "00-000",
                             "is_active": False,
                             "created_at": now_iso,
                         },
@@ -310,6 +300,16 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                     "ON restaurant_locations(restaurant_id, location_id)"
                 )
             )
+
+        if "restaurant_postal_codes" in table_names:
+            restaurant_postal_indexes = _sqlite_index_names(connection, "restaurant_postal_codes")
+            if "uq_restaurant_postal_code" not in restaurant_postal_indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_restaurant_postal_code "
+                        "ON restaurant_postal_codes(restaurant_id, postal_code)"
+                    )
+                )
 
 
         if "locations" in table_names:

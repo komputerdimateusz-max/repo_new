@@ -54,7 +54,7 @@ def test_coverage_page_renders_table_and_single_update_form(tmp_path: Path, monk
     setup_session: Session = testing_session_local()
     try:
         restaurant = Restaurant(name="Resto", is_active=True)
-        location = Location(company_name="Acme", address="Main 1", is_active=True, cutoff_time=time(11, 0))
+        location = Location(company_name="Acme", address="Main 1", postal_code="11-111", is_active=True, cutoff_time=time(11, 0))
         setup_session.add_all([restaurant, location])
         setup_session.commit()
         setup_session.refresh(restaurant)
@@ -97,7 +97,7 @@ def test_coverage_post_can_clear_override_without_disabling_mapping(tmp_path: Pa
     setup_session: Session = testing_session_local()
     try:
         restaurant = Restaurant(name="Resto", is_active=True)
-        location = Location(company_name="Beta", address="Street 2", is_active=True, cutoff_time=time(11, 0))
+        location = Location(company_name="Beta", address="Street 2", postal_code="22-222", is_active=True, cutoff_time=time(11, 0))
         setup_session.add_all([restaurant, location])
         setup_session.commit()
         setup_session.add(
