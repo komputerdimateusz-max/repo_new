@@ -170,6 +170,19 @@ select {
   width: 100%;
 }
 
+.order-ui-build-badge {
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 8px 8px 0 0;
+  bottom: 0;
+  color: #e5e7eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  padding: 0.35rem 0.55rem;
+  position: fixed;
+  right: 0.65rem;
+  z-index: 50;
+}
+
 @media (max-width: 960px) {
   .topbar,
   .selectors {
