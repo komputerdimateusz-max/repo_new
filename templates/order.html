@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Place Order | Złóż zamówienie{% endblock %}
+
+{% block content %}
+<div class="page">
+  <header class="topbar">
+    <div class="brand">
+      <h1>Place Order</h1>
+      <p>Złóż zamówienie</p>
+    </div>
+    <div class="selectors">
+      <label>
+        Wybierz firmę
+        <select>
+          <option>Acme Sp. z o.o.</option>
+          <option>Tech Park Logistics</option>
+          <option>North Factory Team</option>
+        </select>
+      </label>
+      <label>
+        Data
+        <input type="date" value="2026-02-18" />
+      </label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="menu" aria-label="Menu">
+      <h2>Menu dnia</h2>
+      <div class="menu-grid">
+        {% for item in menu_items %}
+        <article class="menu-card">
+          <h3>{{ item.name }}</h3>
+          <p>{{ item.description }}</p>
+          <div class="menu-card-footer">
+            <span class="price">{{ item.price }}</span>
+            <div class="qty-control" data-qty-control>
+              <button type="button" aria-label="Zmniejsz ilość" data-action="decrease">−</button>
+              <span data-qty>0</span>
+              <button type="button" aria-label="Zwiększ ilość" data-action="increase">+</button>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <aside class="cart" aria-label="Koszyk">
+      <h2>Twój koszyk</h2>
+      <ul>
+        {% for item in cart_items %}
+        <li>
+          <div>
+            <strong>{{ item.name }}</strong>
+            <small>Ilość: {{ item.qty }}</small>
+          </div>
+          <span>{{ item.price }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="cart-summary">
+        <span>Razem</span>
+        <strong>{{ total }}</strong>
+      </div>
+      <button type="button" class="order-btn">Przejdź do zamówienia</button>
+    </aside>
+  </main>
+</div>
+{% endblock %}
