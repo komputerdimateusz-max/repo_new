@@ -1,0 +1,15 @@
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Placeholder food image">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F9FF"/>
+      <stop offset="1" stop-color="#D9E9FA"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="300" rx="24" fill="url(#bg)"/>
+  <circle cx="150" cy="150" r="88" fill="#FFFFFF" stroke="#BFD4EA" stroke-width="8"/>
+  <ellipse cx="150" cy="145" rx="58" ry="36" fill="#98C16A"/>
+  <circle cx="124" cy="133" r="10" fill="#E97D63"/>
+  <circle cx="174" cy="156" r="10" fill="#E97D63"/>
+  <circle cx="152" cy="165" r="9" fill="#F1C453"/>
+  <path d="M96 196C120 210 180 210 204 196" stroke="#8AA9C8" stroke-width="8" stroke-linecap="round"/>
+</svg>
