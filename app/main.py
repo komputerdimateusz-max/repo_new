@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -46,6 +46,26 @@ def _resolve_build_id() -> str:
 
 ORDER_UI_BUILD_ID = _resolve_build_id()
 ORDER_UI_BUILD_TS = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+ORDER_TEMPLATE_NAME = "order.html"
+ORDER_TEMPLATE_PATH = str((BASE_DIR / "templates" / ORDER_TEMPLATE_NAME).resolve())
+
+
+def _order_handler_ref() -> str:
+    """Return canonical handler reference for order page."""
+    return f"{root.__module__}:{root.__name__}"
+
+
+def _route_listing() -> str:
+    """Render a debug list of all registered routes."""
+    lines: list[str] = []
+    for route in app.routes:
+        route_methods = getattr(route, "methods", None) or []
+        methods = ",".join(sorted(route_methods))
+        endpoint = getattr(route, "endpoint", None)
+        endpoint_name = getattr(endpoint, "__name__", "<no-endpoint>")
+        endpoint_module = getattr(endpoint, "__module__", "<unknown>")
+        lines.append(f"{route.path} [{methods}] -> {endpoint_module}:{endpoint_name}")
+    return "\n".join(sorted(lines))
 
 
 @app.on_event("startup")
@@ -75,16 +95,42 @@ def root(request: Request) -> HTMLResponse:
         "cart_items": cart_items,
         "total": "57,00 zł",
         "order_ui_build": f"{ORDER_UI_BUILD_ID} {ORDER_UI_BUILD_TS}",
+        "order_ui_git_sha": ORDER_UI_BUILD_ID,
+        "order_ui_template_path": ORDER_TEMPLATE_PATH,
+        "order_ui_template_name": ORDER_TEMPLATE_NAME,
     }
-    return templates.TemplateResponse(request, "order.html", context)
+    response = templates.TemplateResponse(request, ORDER_TEMPLATE_NAME, context)
+    response.headers["X-ORDER-UI-TEMPLATE"] = ORDER_TEMPLATE_PATH
+    response.headers["X-ORDER-UI-HANDLER"] = _order_handler_ref()
+    response.headers["X-ORDER-UI-BUILD"] = ORDER_UI_BUILD_ID
+    return response
 
 
 @app.get("/order", include_in_schema=False)
 @app.get("/place-order", include_in_schema=False)
+@app.get("/customer", include_in_schema=False)
 @app.get("/customer/order", include_in_schema=False)
 def redirect_legacy_order_routes() -> RedirectResponse:
     """Redirect legacy customer order paths to canonical root page."""
     return RedirectResponse(url="/", status_code=307)
+
+
+@app.get("/__debug/routes", include_in_schema=False, response_class=PlainTextResponse)
+def debug_routes() -> PlainTextResponse:
+    """Return registered route listing for routing verification."""
+    return PlainTextResponse(_route_listing())
+
+
+@app.get("/__debug/order-source", include_in_schema=False)
+def debug_order_source() -> dict[str, str]:
+    """Return canonical order UI source details."""
+    return {
+        "handler": _order_handler_ref(),
+        "template_path": ORDER_TEMPLATE_PATH,
+        "static_css_href": f"/static/order.css?v={ORDER_UI_BUILD_ID}",
+        "static_js_href": f"/static/order.js?v={ORDER_UI_BUILD_ID}",
+        "git_sha": ORDER_UI_BUILD_ID,
+    }
 
 
 @app.get("/api")
