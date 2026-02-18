@@ -21,6 +21,11 @@ This project is now a strict MVP for one-restaurant catering.
   - DailySpecial
   - Order / OrderItem
 
+## Web URLs
+- UI: `http://127.0.0.1:8000/`
+- API root: `http://127.0.0.1:8000/api`
+- API docs: `http://127.0.0.1:8000/docs`
+
 ## Streamlit UIs
 - Admin panel: `streamlit run streamlit_app/admin.py`
 - Customer ordering page: `streamlit run streamlit_app/order.py`
