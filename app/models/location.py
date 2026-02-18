@@ -1,31 +1,32 @@
-"""Location-related ORM models."""
+"""Location and company ORM models for MVP single-restaurant flow."""
 
-from datetime import datetime, time, timezone
-
-from sqlalchemy import Boolean, DateTime, String, Time
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 
 class Location(Base):
-    """Represents supported delivery location for a company."""
+    """Delivery location managed by the restaurant."""
 
     __tablename__ = "locations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     address: Mapped[str] = mapped_column(String(255), nullable=False)
-    postal_code: Mapped[str] = mapped_column(String(16), nullable=False, default="00-000")
-    delivery_time_start: Mapped[time | None] = mapped_column(Time, nullable=True)
-    delivery_time_end: Mapped[time | None] = mapped_column(Time, nullable=True)
-    cutoff_time: Mapped[time | None] = mapped_column(Time, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
+    postal_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
-    orders: Mapped[list["Order"]] = relationship(back_populates="location")
-    restaurant_mappings: Mapped[list["RestaurantLocation"]] = relationship()
+    companies: Mapped[list["Company"]] = relationship(back_populates="location")
+
+
+class Company(Base):
+    """Customer company assigned to one location."""
+
+    __tablename__ = "companies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), nullable=False)
+
+    location: Mapped[Location] = relationship(back_populates="companies")
+    customers: Mapped[list["Customer"]] = relationship(back_populates="company")

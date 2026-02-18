@@ -1,57 +1,35 @@
-"""Order API schemas."""
+"""Order schemas for MVP API."""
 
-from datetime import date
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class OrderItemPayload(BaseModel):
-    """Single order item payload."""
-
-    catalog_item_id: int
+class OrderItemCreate(BaseModel):
+    menu_item_id: int
     quantity: int = Field(default=1, ge=1)
 
 
 class OrderCreate(BaseModel):
-    """Create or replace today's order items."""
-
-    items: list[OrderItemPayload]
-    location_id: int | None = None
-    order_for_next_day: bool = False
+    customer_id: int
+    items: list[OrderItemCreate]
 
 
-class OrderItemResponse(BaseModel):
-    """Serialized order item."""
-
-    catalog_item_id: int
-    quantity: int
-
-
-class OrderResponse(BaseModel):
-    """Serialized order."""
-
-    order_id: int
-    order_date: date
-    status: str
-    items: list[OrderItemResponse]
-
-
-class UserOrderItemResponse(BaseModel):
-    """Serialized order item enriched with menu details."""
-
-    catalog_item_id: int
-    name: str
-    quantity: int
-    price_cents: int
-
-
-class UserOrderResponse(BaseModel):
-    """Serialized user order enriched with totals."""
-
+class OrderItemRead(BaseModel):
     id: int
-    order_date: date
+    menu_item_id: int
+    quantity: int
+    price_snapshot: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrderRead(BaseModel):
+    id: int
+    customer_id: int
+    created_at: datetime
+    total_amount: float
     status: str
-    items: list[UserOrderItemResponse]
-    total_cents: int
+    items: list[OrderItemRead]
 
     model_config = ConfigDict(from_attributes=True)
