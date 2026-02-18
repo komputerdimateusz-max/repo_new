@@ -8,3 +8,5 @@ pytest
 python-dotenv
 jinja2
 httpx
+
+streamlit

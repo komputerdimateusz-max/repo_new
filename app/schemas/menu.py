@@ -1,56 +1,46 @@
-"""Menu and catalog API schemas."""
+"""Menu schemas for MVP API."""
 
-from datetime import date
+from datetime import date as dt_date
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class CatalogItemCreate(BaseModel):
-    """Payload for creating catalog item."""
-
+class MenuItemCreate(BaseModel):
     name: str
     description: str | None = None
-    price_cents: int = Field(ge=0)
+    price: int = Field(ge=0)
+    is_standard: bool = True
     is_active: bool = True
 
 
-class CatalogItemResponse(BaseModel):
-    """Serialized catalog item."""
-
+class MenuItemRead(BaseModel):
     id: int
     name: str
     description: str | None
-    price_cents: int
+    price: int
+    is_standard: bool
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class DailyMenuActivationRequest(BaseModel):
-    """Payload to activate/deactivate catalog item for day."""
-
-    catalog_item_id: int
-    menu_date: date | None = None
+class DailySpecialCreate(BaseModel):
+    menu_item_id: int
+    date: dt_date | None = None
+    weekday: int | None = Field(default=None, ge=0, le=6)
     is_active: bool = True
 
 
-class DailyMenuItemResponse(BaseModel):
-    """Serialized daily menu activation row with dish details."""
-
-    daily_id: int
-    catalog_item_id: int
-    menu_date: date
+class DailySpecialRead(BaseModel):
+    id: int
+    menu_item_id: int
+    date: dt_date | None
+    weekday: int | None
     is_active: bool
-    name: str
-    description: str | None
-    price_cents: int
+
+    model_config = ConfigDict(from_attributes=True)
 
 
-class MenuItemCreate(BaseModel):
-    """Backward-compatible payload, now creates catalog + activation."""
-
-    menu_date: date
-    name: str
-    description: str | None = None
-    price_cents: int = Field(ge=0)
-    is_active: bool = True
+class TodayMenuResponse(BaseModel):
+    standard_items: list[MenuItemRead]
+    specials: list[MenuItemRead]
