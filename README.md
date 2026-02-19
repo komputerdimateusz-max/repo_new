@@ -43,3 +43,13 @@ On first startup, if no admin exists, the app creates:
 - `/restaurant/settings` - cut-off/delivery settings
 
 `/docs` remains available for OpenAPI docs.
+
+
+## Manual role-separation test checklist
+1. Start app and log in as `admin / 123`.
+2. Open `/admin/users` and create:
+   - `restaurant1 / pass / RESTAURANT`
+   - `customer1 / pass / CUSTOMER`
+3. Logout, log in as `restaurant1`, open `/restaurant/menu`, add a new menu item.
+4. Logout, log in as `customer1`, open `/` and verify the newly added item is visible.
+5. Verify customer role is blocked from `/admin` and `/restaurant`.

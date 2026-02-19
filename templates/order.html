@@ -19,8 +19,10 @@
 
     <div class="topbar-right">
       <div class="code-block">
-        <span class="postal-code" data-user-email>{{ user_email }}</span>
-        <a href="/profile" aria-label="Przejdź do profilu">Zmień w profilu</a>
+        <span class="postal-code" data-user-email>{{ session.get('username', user_email) }} ({{ session.get('role', 'CUSTOMER') }})</span>
+        {% if session.get('role') == 'ADMIN' %}<a href="/admin">Admin</a>{% endif %}
+        {% if session.get('role') == 'RESTAURANT' %}<a href="/restaurant">Panel restauracji</a>{% endif %}
+        {% if session.get('role') == 'CUSTOMER' %}<a href="/profile" aria-label="Przejdź do profilu">Zmień w profilu</a>{% endif %}
         <form method="post" action="/logout" style="display:inline;"><button type="submit" aria-label="Wyloguj" style="background:none;border:none;color:#1f58d6;cursor:pointer;padding:0;">Wyloguj</button></form>
       </div>
     </div>
