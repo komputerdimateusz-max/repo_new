@@ -1,0 +1,13 @@
+<!doctype html><html><body>
+<h1>Create user</h1>
+<form method="post" action="/admin/users">
+  <input type="text" name="username" placeholder="username" required />
+  <input type="password" name="password" placeholder="password" required />
+  <select name="role">
+    <option value="RESTAURANT">RESTAURANT</option>
+    <option value="CUSTOMER">CUSTOMER</option>
+  </select>
+  <button type="submit">Create</button>
+</form>
+<a href="/admin/users">Back</a>
+</body></html>

@@ -1,24 +1,13 @@
 <!doctype html>
-<html lang="pl">
+<html lang="en">
   <body>
     <h1>Login</h1>
-    <form method="post" action="/login/send" style="margin-bottom:12px;">
-      <input type="email" name="email" id="email" placeholder="email" value="{{ email }}" required />
-      <button type="submit">Send code</button>
-    </form>
-
-    <form method="post" action="/login/verify">
-      <input type="email" name="email" placeholder="email" value="{{ email }}" required />
-      <input type="text" name="code" id="code" placeholder="magic code" required />
+    <p style="color:#b42318;font-weight:700;">DEV WARNING: default admin is admin / 123. Change default password.</p>
+    <form method="post" action="/login">
+      <input type="text" name="username" placeholder="username" required />
+      <input type="password" name="password" placeholder="password" required />
       <button type="submit">Login</button>
     </form>
-
-    {% if success %}
-    <p style="color:#027a48;">{{ success }}</p>
-    {% endif %}
-
-    {% if error %}
-    <p style="color:#b42318;">{{ error }}</p>
-    {% endif %}
+    {% if error %}<p style="color:#b42318;">{{ error }}</p>{% endif %}
   </body>
 </html>

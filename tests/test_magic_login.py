@@ -1,73 +1,27 @@
-"""Magic login flow resilience tests."""
+"""Username/password login flow tests."""
 
 from fastapi.testclient import TestClient
 
 from app import main
 
 
-def test_login_send_invalid_email_shows_validation_message() -> None:
-    """Invalid email should render login page with a user-friendly validation error."""
+def test_login_with_invalid_credentials_shows_validation_message() -> None:
     with TestClient(main.app) as client:
-        response = client.post("/login/send", json={"email": "invalid-email"})
-
+        response = client.post("/login", data={"username": "bad", "password": "bad"})
     assert response.status_code == 200
-    assert "Invalid email" in response.text
+    assert "Invalid username or password" in response.text
 
 
-def test_login_send_exception_is_handled(monkeypatch) -> None:
-    """Unexpected send failures should render a friendly error and not crash."""
-
-    async def broken_payload(_request):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(main, "_read_login_payload", broken_payload)
-
+def test_default_admin_exists_and_login_redirects_to_admin() -> None:
     with TestClient(main.app) as client:
-        response = client.post("/login/send", json={"email": "pilot@example.com"})
-
-    assert response.status_code == 200
-    assert "Could not send code. Check server logs." in response.text
-
+        response = client.post("/login", data={"username": "admin", "password": "123"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin"
 
 
-
-def test_login_send_json_payload_works() -> None:
-    """JSON payload should be accepted for sending magic codes."""
+def test_logout_clears_session() -> None:
     with TestClient(main.app) as client:
-        response = client.post("/login/send", json={"email": "json@example.com"})
-
-    assert response.status_code == 200
-    assert "Code sent (see server logs)." in response.text
-
-
-def test_login_send_invalid_payload_returns_friendly_error(monkeypatch) -> None:
-    """Unreadable payloads should show a friendly invalid request message."""
-
-    async def invalid_payload(_request):
-        raise ValueError("invalid")
-
-    monkeypatch.setattr(main, "_read_login_payload", invalid_payload)
-
-    with TestClient(main.app) as client:
-        response = client.post("/login/send", data={"email": "pilot@example.com"})
-
-    assert response.status_code == 200
-    assert "Invalid request." in response.text
-
-def test_debug_last_login_code_requires_debug_flag(monkeypatch) -> None:
-    """Debug endpoint should be hidden unless DEBUG=true."""
-    main.MAGIC_CODES["pilot@example.com"] = {"code": "123456", "expires_at": 9999999999.0}
-
-    monkeypatch.setenv("DEBUG", "false")
-    with TestClient(main.app) as client:
-        disabled_response = client.get("/__debug/last_login_code", params={"email": "pilot@example.com"})
-    assert disabled_response.status_code == 404
-
-    monkeypatch.setenv("DEBUG", "true")
-    with TestClient(main.app) as client:
-        enabled_response = client.get("/__debug/last_login_code", params={"email": "pilot@example.com"})
-
-    assert enabled_response.status_code == 200
-    payload = enabled_response.json()
-    assert payload["code"] == "123456"
-    assert payload["email"] == "pilot@example.com"
+        client.post("/login", data={"username": "admin", "password": "123"}, follow_redirects=False)
+        logout = client.post("/logout", follow_redirects=False)
+    assert logout.status_code == 303
+    assert logout.headers["location"] == "/login"

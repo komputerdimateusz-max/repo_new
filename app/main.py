@@ -1,64 +1,40 @@
 """FastAPI entrypoint for single-restaurant catering MVP."""
 
-import os
-import random
-import subprocess
-import time
+from __future__ import annotations
+
 import logging
-from datetime import datetime, timezone
+import os
+import subprocess
+from decimal import Decimal
+from urllib.parse import parse_qs
 from pathlib import Path
 from uuid import uuid4
-
-import base64
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
-from app.models import Customer
+from app.models import MenuItem, RestaurantSetting, User
+from app.services.account_service import authenticate_user, ensure_customer_profile, ensure_default_admin
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MAGIC_CODE_TTL_SECONDS = 10 * 60
-RATE_WINDOW_SECONDS = 10 * 60
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Single Restaurant Catering MVP")
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    same_site="lax",
-    https_only=False,
-)
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
 app.include_router(api_router, prefix="/api/v1")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-MAGIC_CODES: dict[str, dict[str, float | str]] = {}
-SEND_RATE_LIMIT: dict[str, list[float]] = {}
-VERIFY_RATE_LIMIT: dict[str, list[float]] = {}
-
-
-async def _read_login_payload(request: Request) -> dict:
-    try:
-        payload = await request.json()
-        if isinstance(payload, dict):
-            return payload
-    except Exception:
-        pass
-
-    try:
-        form = await request.form()
-        return {"email": form.get("email", ""), "code": form.get("code", "")}
-    except Exception as exc:
-        raise ValueError("Invalid login payload") from exc
+MENU_CATEGORIES = ["Dania dnia", "Zupy", "Drugie", "Fit", "Napoje", "Dodatki"]
 
 
 def _resolve_build_id() -> str:
@@ -75,271 +51,343 @@ def _resolve_build_id() -> str:
 
 
 ORDER_UI_BUILD_ID = _resolve_build_id()
-ORDER_UI_BUILD_TS = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-ORDER_TEMPLATE_NAME = "order.html"
-ORDER_TEMPLATE_PATH = str((BASE_DIR / "templates" / ORDER_TEMPLATE_NAME).resolve())
-
-
-def _order_handler_ref() -> str:
-    return f"{root.__module__}:{root.__name__}"
-
-
-def _route_listing() -> str:
-    lines: list[str] = []
-    for route in app.routes:
-        route_methods = getattr(route, "methods", None) or []
-        methods = ",".join(sorted(route_methods))
-        endpoint = getattr(route, "endpoint", None)
-        endpoint_name = getattr(endpoint, "__name__", "<no-endpoint>")
-        endpoint_module = getattr(endpoint, "__module__", "<unknown>")
-        lines.append(f"{route.path} [{methods}] -> {endpoint_module}:{endpoint_name}")
-    return "\n".join(sorted(lines))
 
 
 @app.on_event("startup")
 def startup() -> None:
-    try:
-        import multipart  # type: ignore # noqa: F401
-    except ImportError:
-        logger.warning("[STARTUP] 'python-multipart' is not installed. Install it to enable form parsing.")
-
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
-    logger.info("[STARTUP] FastAPI app initialized with %s routes", len(app.routes))
+        ensure_default_admin(session)
 
 
-def _current_customer(request: Request) -> dict:
-    return {
-        "customer_id": request.session.get("customer_id"),
-        "customer_email": request.session.get("customer_email"),
-    }
+def _session_user(request: Request) -> dict[str, str | int] | None:
+    user_id = request.session.get("user_id")
+    role = request.session.get("role")
+    username = request.session.get("username")
+    if user_id and role and username:
+        return {"user_id": user_id, "role": role, "username": username}
+    return None
 
 
-def _require_login(request: Request) -> RedirectResponse | None:
-    if _current_customer(request).get("customer_id"):
-        return None
-    return RedirectResponse(url="/login", status_code=307)
+def _require_login(request: Request) -> dict[str, str | int] | RedirectResponse:
+    current = _session_user(request)
+    if current:
+        return current
+    return RedirectResponse(url="/login", status_code=303)
 
 
-def _trim_window(bucket: dict[str, list[float]], key: str) -> list[float]:
-    now = time.time()
-    entries = [stamp for stamp in bucket.get(key, []) if now - stamp < RATE_WINDOW_SECONDS]
-    bucket[key] = entries
-    return entries
+def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | int] | RedirectResponse:
+    current = _require_login(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if str(current["role"]) not in allowed:
+        return RedirectResponse(url="/", status_code=303)
+    return current
 
 
-def _is_rate_limited(bucket: dict[str, list[float]], key: str, limit: int) -> bool:
-    entries = _trim_window(bucket, key)
-    if len(entries) >= limit:
-        return True
-    entries.append(time.time())
-    bucket[key] = entries
-    return False
-
-
-def _is_debug_mode() -> bool:
-    return os.getenv("DEBUG", "false").strip().lower() == "true"
-
-def _admin_credentials() -> tuple[str, str]:
-    if settings.admin_user and settings.admin_pass:
-        return settings.admin_user, settings.admin_pass
-    if settings.app_env == "dev":
-        print("[ADMIN] ADMIN_USER/ADMIN_PASS missing - using dev fallback admin/admin")
-        return "admin", "admin"
-    raise HTTPException(status_code=500, detail="Admin credentials are not configured.")
-
-
-def _is_admin_authorized(request: Request) -> bool:
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Basic "):
-        return False
-    try:
-        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
-    except Exception:
-        return False
-    if ":" not in decoded:
-        return False
-    return tuple(decoded.split(":", 1)) == _admin_credentials()
-
-
-def _require_admin_page_auth(request: Request) -> None:
-    if not _is_admin_authorized(request):
-        raise HTTPException(status_code=401, detail="Admin authentication required", headers={"WWW-Authenticate": "Basic"})
-
+async def _form_data(request: Request) -> dict[str, str]:
+    body = (await request.body()).decode()
+    parsed = parse_qs(body, keep_blank_values=True)
+    return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
-    redirect = _require_login(request)
-    if redirect:
-        return redirect
+    current = _require_role_page(request, {"CUSTOMER"})
+    if isinstance(current, RedirectResponse):
+        return current
     context = {
         "request": request,
-        "order_ui_build": f"{ORDER_UI_BUILD_ID} {ORDER_UI_BUILD_TS}",
-        "order_ui_git_sha": ORDER_UI_BUILD_ID,
-        "order_ui_template_path": ORDER_TEMPLATE_PATH,
-        "order_ui_template_name": ORDER_TEMPLATE_NAME,
-        "user_email": _current_customer(request).get("customer_email"),
+        "order_ui_build": ORDER_UI_BUILD_ID,
+        "user_email": current["username"],
         "debug_ui": settings.debug_ui,
     }
-    response = templates.TemplateResponse(request, ORDER_TEMPLATE_NAME, context)
-    response.headers["X-ORDER-UI-TEMPLATE"] = ORDER_TEMPLATE_PATH
-    response.headers["X-ORDER-UI-BUILD"] = ORDER_UI_BUILD_ID
-    response.headers["X-ORDER-UI-HANDLER"] = _order_handler_ref()
-    return response
+    return templates.TemplateResponse(request, "order.html", context)
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, error: str | None = None, success: str | None = None, email: str = ""):
-    if _current_customer(request).get("customer_id"):
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "login.html",
-        {"request": request, "error": error, "success": success, "email": email},
-    )
+def login_page(request: Request, error: str | None = None):
+    current = _session_user(request)
+    if current:
+        role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
+        return RedirectResponse(url=role_redirect.get(str(current["role"]), "/"), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"request": request, "error": error})
 
 
-@app.post("/login/send", response_class=HTMLResponse)
-async def login_send(request: Request):
-    try:
-        data = await _read_login_payload(request)
-        clean_email = str(data.get("email", "")).strip().lower()
-        if not clean_email or "@" not in clean_email:
-            return login_page(request, error="Invalid email", email=clean_email)
-
-        if _is_rate_limited(SEND_RATE_LIMIT, clean_email, 5):
-            logger.info("[LOGIN] rate_limited send email=%s", clean_email)
-            return login_page(request, error="Too many requests. Try again later.", email=clean_email)
-
-        magic_code = f"{random.randint(0, 999999):06d}"
-        MAGIC_CODES[clean_email] = {"code": magic_code, "expires_at": time.time() + MAGIC_CODE_TTL_SECONDS}
-        logger.warning("[LOGIN] Magic code for %s: %s", clean_email, magic_code)
-        return login_page(request, success="Code sent (see server logs).", email=clean_email)
-    except ValueError:
-        return login_page(request, error="Invalid request.")
-    except Exception:
-        logger.exception("[LOGIN] Failed to send magic code")
-        return login_page(request, error="Could not send code. Check server logs.")
-
-
-@app.post("/login/verify", response_class=RedirectResponse)
-async def login_verify(request: Request):
-    data = await _read_login_payload(request)
-    clean_email = str(data.get("email", "")).strip().lower()
-    code = str(data.get("code", "")).strip()
-
-    if _is_rate_limited(VERIFY_RATE_LIMIT, clean_email, 10):
-        logger.info("[LOGIN] rate_limited verify email=%s", clean_email)
-        return login_page(request, error="Too many requests. Try again later.", email=clean_email)
-
-    entry = MAGIC_CODES.get(clean_email)
-    if not entry or entry.get("expires_at", 0) < time.time() or entry.get("code") != code:
-        return login_page(request, error="Invalid code", email=clean_email)
-
+@app.post("/login", response_class=RedirectResponse)
+async def login_submit(request: Request):
+    form = await _form_data(request)
+    username = form.get("username", "")
+    password = form.get("password", "")
     with SessionLocal() as db:
-        customer = db.query(Customer).filter(Customer.email == clean_email).first()
-        if customer is None:
-            customer = Customer(email=clean_email, name=clean_email.split("@")[0], company_id=None, postal_code=None, is_active=True)
-            db.add(customer)
-            db.commit()
-            db.refresh(customer)
+        user = authenticate_user(db, username=username, password=password)
+        if user is None:
+            return login_page(request, error="Invalid username or password")
 
-    request.session["customer_id"] = customer.id
-    request.session["customer_email"] = customer.email
-    MAGIC_CODES.pop(clean_email, None)
-    return RedirectResponse(url="/", status_code=303)
+        request.session.clear()
+        request.session["user_id"] = user.id
+        request.session["role"] = user.role
+        request.session["username"] = user.username
+
+        user_role = user.role
+        if user_role == "CUSTOMER":
+            customer = ensure_customer_profile(db, user)
+            request.session["customer_id"] = customer.id
+            request.session["customer_email"] = customer.email
+
+    role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
+    return RedirectResponse(url=role_redirect.get(user_role, "/"), status_code=303)
 
 
-@app.get("/logout", response_class=RedirectResponse)
+@app.post("/logout", response_class=RedirectResponse)
 def logout(request: Request):
     request.session.clear()
-    response = RedirectResponse(url="/login", status_code=303)
-    return response
-
-
-@app.get("/__debug/last_login_code")
-def debug_last_login_code(email: str):
-    if not _is_debug_mode():
-        raise HTTPException(status_code=404, detail="Not found")
-    clean_email = email.strip().lower()
-    entry = MAGIC_CODES.get(clean_email)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Code not found")
-    return {"email": clean_email, "code": entry.get("code"), "expires_at": entry.get("expires_at")}
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.get("/profile", response_class=HTMLResponse)
 def profile_page(request: Request):
-    redirect = _require_login(request)
-    if redirect:
-        return redirect
-    return templates.TemplateResponse(request, "profile.html", {"request": request, "email": _current_customer(request).get("customer_email")})
+    current = _require_role_page(request, {"CUSTOMER"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "profile.html", {"request": request, "email": request.session.get("customer_email", current["username"])})
 
 
 @app.get("/my-order", response_class=HTMLResponse)
 def my_order_page(request: Request):
-    redirect = _require_login(request)
-    if redirect:
-        return redirect
-    return templates.TemplateResponse(request, "my_order.html", {"request": request, "user_email": _current_customer(request).get("customer_email")})
+    current = _require_role_page(request, {"CUSTOMER"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "my_order.html", {"request": request, "user_email": current["username"]})
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_home(request: Request):
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "admin_home.html", {"request": request, "username": current["username"]})
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users(request: Request):
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        users = db.scalars(select(User).order_by(User.id.asc())).all()
+    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "users": users})
+
+
+@app.get("/admin/users/new", response_class=HTMLResponse)
+def admin_users_new(request: Request):
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "admin_users_new.html", {"request": request})
+
+
+@app.post("/admin/users", response_class=RedirectResponse)
+async def admin_users_create(request: Request):
+    form = await _form_data(request)
+    username = form.get("username", "")
+    password = form.get("password", "")
+    role = form.get("role", "")
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    clean_role = role.upper()
+    if clean_role not in {"RESTAURANT", "CUSTOMER"}:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    with SessionLocal() as db:
+        existing = db.scalar(select(User).where(User.username == username.strip()).limit(1))
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        user = User(username=username.strip(), password_hash=get_password_hash(password), role=clean_role, is_active=True)
+        db.add(user)
+        db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/password", response_class=RedirectResponse)
+async def admin_user_password(request: Request, user_id: int):
+    form = await _form_data(request)
+    password = form.get("password", "")
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.password_hash = get_password_hash(password)
+        db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+
+@app.get("/restaurant", response_class=HTMLResponse)
+def restaurant_home(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "restaurant_home.html", {"request": request, "username": current["username"]})
+
+
+@app.get("/restaurant/menu", response_class=HTMLResponse)
+def restaurant_menu(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        items = db.scalars(select(MenuItem).order_by(MenuItem.id.desc())).all()
+    return templates.TemplateResponse(request, "restaurant_menu.html", {"request": request, "items": items})
+
+
+@app.get("/restaurant/menu/new", response_class=HTMLResponse)
+def restaurant_menu_new(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    return templates.TemplateResponse(request, "restaurant_menu_form.html", {"request": request, "item": None, "categories": MENU_CATEGORIES})
+
+
+@app.get("/restaurant/menu/{item_id}/edit", response_class=HTMLResponse)
+def restaurant_menu_edit(request: Request, item_id: int):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        item = db.get(MenuItem, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+    return templates.TemplateResponse(request, "restaurant_menu_form.html", {"request": request, "item": item, "categories": MENU_CATEGORIES})
+
+
+@app.post("/restaurant/menu", response_class=RedirectResponse)
+async def restaurant_menu_create(request: Request):
+    form = await _form_data(request)
+    name = form.get("name", "")
+    description = form.get("description", "")
+    price = Decimal(form.get("price", "0"))
+    category = form.get("category", "")
+    is_standard = form.get("is_standard") == "true"
+    is_active = form.get("is_active") == "true"
+    image_url = form.get("image_url", "")
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        db.add(MenuItem(name=name, description=description or None, price=price, category=category, is_standard=is_standard, is_active=is_active, image_url=image_url or None))
+        db.commit()
+    return RedirectResponse(url="/restaurant/menu", status_code=303)
+
+
+@app.post("/restaurant/menu/{item_id}", response_class=RedirectResponse)
+async def restaurant_menu_update(request: Request, item_id: int):
+    form = await _form_data(request)
+    name = form.get("name", "")
+    description = form.get("description", "")
+    price = Decimal(form.get("price", "0"))
+    category = form.get("category", "")
+    is_standard = form.get("is_standard") == "true"
+    is_active = form.get("is_active") == "true"
+    image_url = form.get("image_url", "")
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        item = db.get(MenuItem, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        item.name = name
+        item.description = description or None
+        item.price = price
+        item.category = category
+        item.is_standard = is_standard
+        item.is_active = is_active
+        item.image_url = image_url or None
+        db.commit()
+    return RedirectResponse(url="/restaurant/menu", status_code=303)
+
+
+@app.get("/restaurant/settings", response_class=HTMLResponse)
+def restaurant_settings_page(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        app_settings = db.get(RestaurantSetting, 1)
+    return templates.TemplateResponse(request, "restaurant_settings.html", {"request": request, "settings": app_settings})
+
+
+@app.post("/restaurant/settings", response_class=RedirectResponse)
+async def restaurant_settings_save(request: Request):
+    form = await _form_data(request)
+    cut_off_time = form.get("cut_off_time", "")
+    delivery_fee = Decimal(form.get("delivery_fee", "0"))
+    delivery_window_start = form.get("delivery_window_start", "")
+    delivery_window_end = form.get("delivery_window_end", "")
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        app_settings = db.get(RestaurantSetting, 1)
+        if app_settings is None:
+            raise HTTPException(status_code=500, detail="Settings row is missing")
+        app_settings.cut_off_time = cut_off_time
+        app_settings.delivery_fee = delivery_fee
+        app_settings.delivery_window_start = delivery_window_start
+        app_settings.delivery_window_end = delivery_window_end
+        db.commit()
+    return RedirectResponse(url="/restaurant/settings", status_code=303)
+
+
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page(request: Request):
-    _require_admin_page_auth(request)
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
     return templates.TemplateResponse(request, "admin_settings.html", {"request": request})
 
 
 @app.get("/admin/menu", response_class=HTMLResponse)
 def admin_menu_page(request: Request):
-    _require_admin_page_auth(request)
+    current = _require_role_page(request, {"ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
     return templates.TemplateResponse(request, "admin_menu.html", {"request": request})
 
 
 @app.get("/admin/specials", response_class=HTMLResponse)
 def admin_specials_page(request: Request):
-    _require_admin_page_auth(request)
+    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    if isinstance(current, RedirectResponse):
+        return current
     return templates.TemplateResponse(request, "admin_specials.html", {"request": request})
 
 
 @app.get("/admin/orders/today", response_class=HTMLResponse)
 def admin_orders_page(request: Request):
-    _require_admin_page_auth(request)
+    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    if isinstance(current, RedirectResponse):
+        return current
     return templates.TemplateResponse(request, "admin_orders_today.html", {"request": request})
 
 
 @app.get("/admin/orders/today.csv", response_class=RedirectResponse)
 def admin_orders_csv_redirect(request: Request):
-    _require_admin_page_auth(request)
+    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    if isinstance(current, RedirectResponse):
+        return current
     return RedirectResponse(url="/api/v1/admin/orders/today.csv", status_code=307)
-
-
-@app.get("/order", include_in_schema=False)
-@app.get("/place-order", include_in_schema=False)
-@app.get("/customer", include_in_schema=False)
-@app.get("/customer/order", include_in_schema=False, response_class=RedirectResponse)
-def redirect_legacy_order_routes():
-    return RedirectResponse(url="/", status_code=307)
-
-
 @app.get("/__debug/routes", include_in_schema=False, response_class=PlainTextResponse)
 def debug_routes() -> PlainTextResponse:
-    return PlainTextResponse(_route_listing())
-
-
-@app.get("/__debug/order-source", include_in_schema=False)
-def debug_order_source() -> dict[str, str]:
-    return {
-        "handler": _order_handler_ref(),
-        "template_path": ORDER_TEMPLATE_PATH,
-        "static_css_href": f"/static/order.css?v={ORDER_UI_BUILD_ID}",
-        "static_js_href": f"/static/order.js?v={ORDER_UI_BUILD_ID}",
-        "git_sha": ORDER_UI_BUILD_ID,
-    }
-
-
-@app.get("/api")
-def api_root() -> dict[str, str]:
-    return {"app": settings.app_name, "message": "MVP 1.0 single restaurant catering API", "docs": "/docs", "api_v1": "/api/v1"}
+    lines = []
+    for route in app.routes:
+        methods = ",".join(sorted(getattr(route, "methods", None) or []))
+        endpoint = getattr(route, "endpoint", None)
+        lines.append(f"{route.path} [{methods}] -> {getattr(endpoint, '__name__', '<no-endpoint>')}")
+    return PlainTextResponse("\n".join(sorted(lines)))

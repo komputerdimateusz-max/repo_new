@@ -1,48 +1,31 @@
 """User service operations."""
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
-    """Return user by email if found."""
-    return db.query(User).filter(User.email == email).first()
+    return db.scalar(select(User).where(User.email == email).limit(1))
+
+
+def get_user_by_username(db: Session, username: str) -> User | None:
+    return db.scalar(select(User).where(User.username == username).limit(1))
 
 
 def get_user_by_id(db: Session, user_id: int) -> User | None:
-    """Return user by identifier if found."""
-    return db.query(User).filter(User.id == user_id).first()
+    return db.get(User, user_id)
 
 
 def create_user(
     db: Session,
-    email: str,
+    username: str,
     hashed_password: str,
     role: str,
-    restaurant_id: int | None = None,
+    email: str | None = None,
 ) -> User:
-    """Create and persist a new user."""
-    user: User = User(
-        email=email,
-        hashed_password=hashed_password,
-        role=role,
-        restaurant_id=restaurant_id,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-def list_users(db: Session) -> list[User]:
-    """Return all users sorted by identifier."""
-    return db.query(User).order_by(User.id.asc()).all()
-
-
-def update_user_role(db: Session, user: User, role: str) -> User:
-    """Update and persist user's role."""
-    user.role = role
+    user = User(username=username, password_hash=hashed_password, role=role, email=email, is_active=True)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -50,5 +33,4 @@ def update_user_role(db: Session, user: User, role: str) -> User:
 
 
 def count_admin_users(db: Session) -> int:
-    """Return count of users with admin role."""
-    return db.query(User).filter(User.role == "admin").count()
+    return len(db.scalars(select(User.id).where(User.role == "ADMIN")).all())

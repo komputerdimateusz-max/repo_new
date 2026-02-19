@@ -21,7 +21,7 @@
       <div class="code-block">
         <span class="postal-code" data-user-email>{{ user_email }}</span>
         <a href="/profile" aria-label="Przejdź do profilu">Zmień w profilu</a>
-        <a href="/logout" aria-label="Wyloguj">Wyloguj</a>
+        <form method="post" action="/logout" style="display:inline;"><button type="submit" aria-label="Wyloguj" style="background:none;border:none;color:#1f58d6;cursor:pointer;padding:0;">Wyloguj</button></form>
       </div>
     </div>
   </header>

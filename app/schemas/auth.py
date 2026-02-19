@@ -6,16 +6,15 @@ from pydantic import BaseModel, ConfigDict
 class RegisterRequest(BaseModel):
     """Payload for user registration."""
 
-    email: str
+    email: str | None
     password: str
     role: str
-    restaurant_id: int | None = None
 
 
 class LoginRequest(BaseModel):
     """Payload for user login."""
 
-    email: str
+    email: str | None
     password: str
 
 
@@ -30,8 +29,7 @@ class AuthUserResponse(BaseModel):
     """User response for auth endpoints."""
 
     id: int
-    email: str
+    email: str | None
     role: str
-    restaurant_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)

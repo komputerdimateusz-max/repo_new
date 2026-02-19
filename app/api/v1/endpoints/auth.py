@@ -1,74 +1,43 @@
-"""Authentication endpoints."""
+"""Authentication endpoints (API JWT)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import (
-    create_access_token,
-    get_current_user,
-    get_password_hash,
-    verify_password,
-)
+from app.core.security import create_access_token, get_current_user, get_password_hash, verify_password
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import (
-    AuthUserResponse,
-    LoginRequest,
-    RegisterRequest,
-    TokenResponse,
-)
+from app.schemas.auth import AuthUserResponse, LoginRequest, RegisterRequest, TokenResponse
 from app.services.user_service import create_user, get_user_by_email
 
 router: APIRouter = APIRouter()
-
-ALLOWED_ROLES: set[str] = {"admin", "customer", "restaurant"}
+ALLOWED_ROLES: set[str] = {"ADMIN", "CUSTOMER", "RESTAURANT"}
 
 
 @router.post("/register", response_model=AuthUserResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthUserResponse:
-    """Register a new user with email, password, and role."""
-    if payload.role not in ALLOWED_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role",
-        )
-
-    existing_user: User | None = get_user_by_email(db=db, email=payload.email)
-    if existing_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    restaurant_id: int | None = payload.restaurant_id if payload.role == "restaurant" else None
-    if payload.role == "restaurant" and restaurant_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user requires restaurant_id")
-
-    user: User = create_user(
+    role = payload.role.upper()
+    if role not in ALLOWED_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+    if get_user_by_email(db=db, email=payload.email) is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+    user = create_user(
         db=db,
-        email=payload.email,
+        username=payload.email.split("@")[0],
         hashed_password=get_password_hash(payload.password),
-        role=payload.role,
-        restaurant_id=restaurant_id,
+        role=role,
+        email=payload.email,
     )
     return AuthUserResponse.model_validate(user)
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    """Authenticate user and return a JWT bearer token."""
     user: User | None = get_user_by_email(db=db, email=payload.email)
-    if user is None or not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-        )
-
-    token: str = create_access_token(data={"sub": str(user.id)})
-    return TokenResponse(access_token=token)
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    return TokenResponse(access_token=create_access_token(data={"sub": str(user.id)}))
 
 
 @router.get("/me", response_model=AuthUserResponse)
 def me(current_user: User = Depends(get_current_user)) -> AuthUserResponse:
-    """Return data for the authenticated user."""
     return AuthUserResponse.model_validate(current_user)
