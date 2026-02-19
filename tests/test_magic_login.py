@@ -8,7 +8,7 @@ from app import main
 def test_login_send_invalid_email_shows_validation_message() -> None:
     """Invalid email should render login page with a user-friendly validation error."""
     with TestClient(main.app) as client:
-        response = client.post("/login/send", data={"email": "invalid-email"})
+        response = client.post("/login/send", json={"email": "invalid-email"})
 
     assert response.status_code == 200
     assert "Invalid email" in response.text
@@ -23,11 +23,36 @@ def test_login_send_exception_is_handled(monkeypatch) -> None:
     monkeypatch.setattr(main, "_read_login_payload", broken_payload)
 
     with TestClient(main.app) as client:
-        response = client.post("/login/send", data={"email": "pilot@example.com"})
+        response = client.post("/login/send", json={"email": "pilot@example.com"})
 
     assert response.status_code == 200
     assert "Could not send code. Check server logs." in response.text
 
+
+
+
+def test_login_send_json_payload_works() -> None:
+    """JSON payload should be accepted for sending magic codes."""
+    with TestClient(main.app) as client:
+        response = client.post("/login/send", json={"email": "json@example.com"})
+
+    assert response.status_code == 200
+    assert "Code sent (see server logs)." in response.text
+
+
+def test_login_send_invalid_payload_returns_friendly_error(monkeypatch) -> None:
+    """Unreadable payloads should show a friendly invalid request message."""
+
+    async def invalid_payload(_request):
+        raise ValueError("invalid")
+
+    monkeypatch.setattr(main, "_read_login_payload", invalid_payload)
+
+    with TestClient(main.app) as client:
+        response = client.post("/login/send", data={"email": "pilot@example.com"})
+
+    assert response.status_code == 200
+    assert "Invalid request." in response.text
 
 def test_debug_last_login_code_requires_debug_flag(monkeypatch) -> None:
     """Debug endpoint should be hidden unless DEBUG=true."""
