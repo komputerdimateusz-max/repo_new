@@ -46,6 +46,23 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 MENU_CATEGORIES = ["Dania dnia", "Zupy", "Drugie", "Fit", "Napoje", "Dodatki"]
 
 
+def inject_globals(request: Request) -> dict[str, str | int | None]:
+    """Inject common session-derived values for Jinja templates."""
+    return {
+        "session": request.session,
+        "current_user_role": request.session.get("role"),
+        "current_username": request.session.get("username"),
+    }
+
+
+def render_template(request: Request, name: str, context: dict | None = None):
+    """Render a template with required request object and shared global context."""
+    payload = {"request": request, **inject_globals(request)}
+    if context:
+        payload.update(context)
+    return templates.TemplateResponse(request, name, payload)
+
+
 def _resolve_build_id() -> str:
     explicit = os.getenv("ORDER_UI_BUILD") or os.getenv("GIT_COMMIT_HASH")
     if explicit:
@@ -116,12 +133,11 @@ def root(request: Request):
     if isinstance(current, RedirectResponse):
         return current
     context = {
-        "request": request,
         "order_ui_build": ORDER_UI_BUILD_ID,
         "user_email": current["username"],
         "debug_ui": settings.debug_ui,
     }
-    return templates.TemplateResponse(request, "order.html", context)
+    return render_template(request, "order.html", context)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -129,7 +145,7 @@ def login_page(request: Request, error: str | None = None):
     current = _session_user(request)
     if current:
         return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"request": request, "error": error})
+    return render_template(request, "login.html", {"error": error})
 
 
 @app.post("/login", response_class=RedirectResponse)
@@ -195,7 +211,7 @@ def profile_page(request: Request):
     current = _require_role_page(request, {"CUSTOMER"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "profile.html", {"request": request, "email": request.session.get("customer_email", current["username"])})
+    return render_template(request, "profile.html", {"email": request.session.get("customer_email", current["username"])})
 
 
 @app.get("/my-order", response_class=HTMLResponse)
@@ -203,7 +219,7 @@ def my_order_page(request: Request):
     current = _require_role_page(request, {"CUSTOMER"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "my_order.html", {"request": request, "user_email": current["username"]})
+    return render_template(request, "my_order.html", {"user_email": current["username"]})
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -211,7 +227,7 @@ def admin_home(request: Request):
     current = _require_role_page(request, {"ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_home.html", {"request": request, "username": current["username"]})
+    return render_template(request, "admin_home.html", {"username": current["username"]})
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
@@ -221,7 +237,7 @@ def admin_users(request: Request):
         return current
     with SessionLocal() as db:
         users = db.scalars(select(User).order_by(User.id.asc())).all()
-    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "users": users})
+    return render_template(request, "admin_users.html", {"users": users})
 
 
 @app.get("/admin/users/new", response_class=HTMLResponse)
@@ -229,7 +245,7 @@ def admin_users_new(request: Request):
     current = _require_role_page(request, {"ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_users_new.html", {"request": request})
+    return render_template(request, "admin_users_new.html")
 
 
 @app.post("/admin/users", response_class=RedirectResponse)
@@ -283,7 +299,7 @@ def restaurant_home(request: Request):
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "restaurant_home.html", {"request": request, "username": current["username"]})
+    return render_template(request, "restaurant_home.html", {"username": current["username"]})
 
 
 @app.get("/restaurant/menu", response_class=HTMLResponse)
@@ -293,7 +309,7 @@ def restaurant_menu(request: Request):
         return current
     with SessionLocal() as db:
         items = db.scalars(select(MenuItem).order_by(MenuItem.id.desc())).all()
-    return templates.TemplateResponse(request, "restaurant_menu.html", {"request": request, "items": items})
+    return render_template(request, "restaurant_menu.html", {"items": items})
 
 
 @app.get("/restaurant/menu/new", response_class=HTMLResponse)
@@ -301,7 +317,7 @@ def restaurant_menu_new(request: Request):
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "restaurant_menu_form.html", {"request": request, "item": None, "categories": MENU_CATEGORIES})
+    return render_template(request, "restaurant_menu_form.html", {"item": None, "categories": MENU_CATEGORIES})
 
 
 @app.get("/restaurant/menu/{item_id}/edit", response_class=HTMLResponse)
@@ -313,7 +329,7 @@ def restaurant_menu_edit(request: Request, item_id: int):
         item = db.get(MenuItem, item_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Menu item not found")
-    return templates.TemplateResponse(request, "restaurant_menu_form.html", {"request": request, "item": item, "categories": MENU_CATEGORIES})
+    return render_template(request, "restaurant_menu_form.html", {"item": item, "categories": MENU_CATEGORIES})
 
 
 @app.post("/restaurant/menu", response_class=RedirectResponse)
@@ -385,7 +401,7 @@ def restaurant_settings_page(request: Request):
         return current
     with SessionLocal() as db:
         app_settings = db.get(RestaurantSetting, 1)
-    return templates.TemplateResponse(request, "restaurant_settings.html", {"request": request, "settings": app_settings})
+    return render_template(request, "restaurant_settings.html", {"settings": app_settings})
 
 
 @app.post("/restaurant/settings", response_class=RedirectResponse)
@@ -417,7 +433,7 @@ def admin_settings_page(request: Request):
     current = _require_role_page(request, {"ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_settings.html", {"request": request})
+    return render_template(request, "admin_settings.html")
 
 
 @app.get("/admin/menu", response_class=HTMLResponse)
@@ -425,7 +441,7 @@ def admin_menu_page(request: Request):
     current = _require_role_page(request, {"ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_menu.html", {"request": request})
+    return render_template(request, "admin_menu.html")
 
 
 @app.get("/admin/specials", response_class=HTMLResponse)
@@ -433,7 +449,7 @@ def admin_specials_page(request: Request):
     current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_specials.html", {"request": request})
+    return render_template(request, "admin_specials.html")
 
 
 @app.get("/admin/orders/today", response_class=HTMLResponse)
@@ -441,7 +457,7 @@ def admin_orders_page(request: Request):
     current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
     if isinstance(current, RedirectResponse):
         return current
-    return templates.TemplateResponse(request, "admin_orders_today.html", {"request": request})
+    return render_template(request, "admin_orders_today.html")
 
 
 @app.get("/admin/orders/today.csv", response_class=RedirectResponse)

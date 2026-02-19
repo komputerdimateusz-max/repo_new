@@ -1,6 +1,6 @@
 <!doctype html><html><body>
 <h1>Menu items</h1>
-<p>{{ request.session.get("username", "") }} ({{ request.session.get("role", "") }}) • <a href="/restaurant">Panel restauracji</a></p>
+<p>{{ current_username|default("Guest") }} ({{ current_user_role|default("RESTAURANT") }}) • <a href="/restaurant">Panel restauracji</a></p>
 <a href="/restaurant/menu/new">New item</a>
 <table border="1" cellpadding="6">
 <tr><th>Name</th><th>Category</th><th>Price</th><th>Standard</th><th>Active</th><th>Actions</th></tr>
