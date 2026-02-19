@@ -1,6 +1,6 @@
 """Schemas for MVP0 customer ordering API."""
 
-from datetime import datetime
+from datetime import date as dt_date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -17,6 +17,19 @@ class SettingsResponse(BaseModel):
 class CompanyRead(BaseModel):
     id: int
     name: str
+
+
+class MeResponse(BaseModel):
+    email: str
+    name: str
+    company_id: int
+    postal_code: str | None
+
+
+class MeUpdateRequest(BaseModel):
+    company_id: int
+    postal_code: str | None = None
+    name: str = Field(min_length=1)
 
 
 class MenuItemTodayRead(BaseModel):
@@ -43,8 +56,6 @@ class OrderItemCreate(BaseModel):
 
 
 class OrderCreateRequest(BaseModel):
-    customer_email: str
-    company_id: int
     notes: str | None = None
     payment_method: str
     items: list[OrderItemCreate]
@@ -70,4 +81,51 @@ class OrderTodayRead(BaseModel):
     status: str
     created_at: datetime
     total_amount: Decimal
+    payment_method: str
+    notes: str | None
     items: list[OrderTodayItemRead]
+
+
+class AdminSettingsUpdateRequest(BaseModel):
+    cut_off_time: str
+    delivery_fee: Decimal
+    delivery_window_start: str
+    delivery_window_end: str
+
+
+class MenuItemAdminCreate(BaseModel):
+    name: str
+    description: str | None = None
+    price: Decimal
+    category: str
+    is_standard: bool = True
+    is_active: bool = True
+    image_url: str | None = None
+
+
+class MenuItemAdminUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    price: Decimal | None = None
+    category: str | None = None
+    is_standard: bool | None = None
+    is_active: bool | None = None
+    image_url: str | None = None
+
+
+class DailySpecialAdminCreate(BaseModel):
+    menu_item_id: int
+    date: dt_date | None = None
+    weekday: int | None = Field(default=None, ge=0, le=6)
+    is_active: bool = True
+
+
+class DailySpecialAdminUpdate(BaseModel):
+    menu_item_id: int | None = None
+    date: dt_date | None = None
+    weekday: int | None = Field(default=None, ge=0, le=6)
+    is_active: bool | None = None
+
+
+class OrderStatusUpdateRequest(BaseModel):
+    status: str

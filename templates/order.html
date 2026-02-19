@@ -19,8 +19,9 @@
 
     <div class="topbar-right">
       <div class="code-block">
-        <span class="postal-code">Kod: 66-400</span>
-        <a href="#" aria-label="Zmień kod w profilu">Zmień w profilu</a>
+        <span class="postal-code" data-user-email>{{ user_email }}</span>
+        <a href="/profile" aria-label="Przejdź do profilu">Zmień w profilu</a>
+        <a href="/logout" aria-label="Wyloguj">Wyloguj</a>
       </div>
     </div>
   </header>
@@ -72,6 +73,8 @@
       </dl>
 
       <button type="button" class="checkout-btn" data-checkout-btn disabled>Zamawiam i płacę</button>
+      <button type="button" class="checkout-btn" data-my-orders-btn>View my today order</button>
+      <div data-my-orders></div>
       <p class="cart-footnote">To zamówienie zostanie zrealizowane dzisiaj.</p>
     </aside>
   </main>

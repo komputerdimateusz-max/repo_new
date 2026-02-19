@@ -1,0 +1,9 @@
+<!doctype html><html><body><h1>Admin Menu</h1><nav><a href="/admin/settings">Settings</a> | <a href="/admin/specials">Specials</a> | <a href="/admin/orders/today">Today orders</a></nav>
+<form id="create"><input name="name" placeholder="name" required/><input name="description" placeholder="desc"/><input name="price" placeholder="price" required/><input name="category" placeholder="category" required/><label><input type="checkbox" name="is_standard" checked/>standard</label><label><input type="checkbox" name="is_active" checked/>active</label><input name="image_url" placeholder="image"/><button>Add</button></form>
+<div id="list"></div>
+<script>
+async function load(){const rows=await fetch('/api/v1/admin/menu_items').then(r=>r.json());document.getElementById('list').innerHTML=rows.map(r=>`<div>#${r.id} ${r.name} ${r.price} <button onclick="del(${r.id})">Delete</button></div>`).join('');}
+async function del(id){await fetch('/api/v1/admin/menu_items/'+id,{method:'DELETE'});load();}
+ document.getElementById('create').addEventListener('submit',async(e)=>{e.preventDefault();const fd=new FormData(e.target);const p={name:fd.get('name'),description:fd.get('description')||null,price:fd.get('price'),category:fd.get('category'),is_standard:fd.get('is_standard')==='on',is_active:fd.get('is_active')==='on',image_url:fd.get('image_url')||null};await fetch('/api/v1/admin/menu_items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});e.target.reset();load();});
+load();
+</script></body></html>

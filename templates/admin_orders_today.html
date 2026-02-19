@@ -1,0 +1,6 @@
+<!doctype html><html><body><h1>Today Orders</h1><nav><a href="/admin/settings">Settings</a> | <a href="/admin/menu">Menu</a> | <a href="/admin/specials">Specials</a></nav><a href="/api/v1/admin/orders/today/export">Export CSV</a><table border="1"><thead><tr><th>time</th><th>company</th><th>customer</th><th>items</th><th>notes</th><th>payment</th><th>total</th><th>status</th><th>actions</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+async function load(){const data=await fetch('/api/v1/admin/orders/today').then(r=>r.json());document.getElementById('rows').innerHTML=data.map(o=>`<tr><td>${o.created_at}</td><td>${o.company_id}</td><td>${o.customer_email}</td><td>${o.items.map(i=>`${i.menu_item_id}x${i.qty}`).join(',')}</td><td>${o.notes||''}</td><td>${o.payment_method}</td><td>${o.total_amount}</td><td>${o.status}</td><td><button onclick="setStatus(${o.order_id},'CONFIRMED')">Confirm</button><button onclick="setStatus(${o.order_id},'CANCELLED')">Cancel</button></td></tr>`).join('');}
+async function setStatus(id,status){await fetch('/api/v1/admin/orders/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load();}
+load();
+</script></body></html>

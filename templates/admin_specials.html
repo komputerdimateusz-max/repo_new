@@ -1,0 +1,7 @@
+<!doctype html><html><body><h1>Admin Specials</h1><nav><a href="/admin/settings">Settings</a> | <a href="/admin/menu">Menu</a> | <a href="/admin/orders/today">Today orders</a></nav>
+<form id="create"><input name="menu_item_id" placeholder="menu item id" required/><input name="date" placeholder="YYYY-MM-DD"/><input name="weekday" placeholder="0-6"/><label><input type="checkbox" name="is_active" checked/>active</label><button>Add</button></form><div id="list"></div>
+<script>
+async function load(){const rows=await fetch('/api/v1/admin/daily_specials').then(r=>r.json());document.getElementById('list').innerHTML=rows.map(r=>`<div>#${r.id} menu:${r.menu_item_id} date:${r.date||''} weekday:${r.weekday??''} <button onclick="del(${r.id})">Delete</button></div>`).join('');}
+async function del(id){await fetch('/api/v1/admin/daily_specials/'+id,{method:'DELETE'});load();}
+ document.getElementById('create').addEventListener('submit',async(e)=>{e.preventDefault();const fd=new FormData(e.target);const p={menu_item_id:Number(fd.get('menu_item_id')),date:fd.get('date')||null,weekday:fd.get('weekday')?Number(fd.get('weekday')):null,is_active:fd.get('is_active')==='on'};await fetch('/api/v1/admin/daily_specials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});e.target.reset();load();});load();
+</script></body></html>

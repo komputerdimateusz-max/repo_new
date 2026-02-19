@@ -1,0 +1,4 @@
+<!doctype html><html><body><h1>Admin login</h1>{% if message %}<p>Invalid password</p>{% endif %}
+<input type="password" id="password" /><button id="login">Login</button>
+<script>document.getElementById('login').onclick=async()=>{const r=await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('password').value})});if(r.redirected)window.location=r.url;};</script>
+</body></html>
