@@ -11,5 +11,5 @@ class Base(DeclarativeBase):
 from app.models import location as _location  # noqa: E402,F401
 from app.models import menu as _menu  # noqa: E402,F401
 from app.models import order as _order  # noqa: E402,F401
-from app.models import restaurant as _restaurant  # noqa: E402,F401
+from app.models import restaurant_setting as _restaurant_setting  # noqa: E402,F401
 from app.models import user as _user  # noqa: E402,F401

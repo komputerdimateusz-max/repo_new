@@ -14,7 +14,8 @@ from fastapi.templating import Jinja2Templates
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.seed import ensure_seed_data
+from app.db.session import SessionLocal, engine
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -70,30 +71,17 @@ def _route_listing() -> str:
 
 @app.on_event("startup")
 def startup() -> None:
-    """Ensure DB schema exists."""
+    """Ensure DB schema exists and development seed data is present."""
     Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        ensure_seed_data(session)
 
 
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request) -> HTMLResponse:
     """Render MVP customer ordering page."""
-    menu_items = [
-        {"name": "Kotlet schabowy", "description": "Ziemniaki puree, surówka", "price": "29,00 zł"},
-        {"name": "Pierogi ruskie", "description": "8 sztuk, cebulka", "price": "24,00 zł"},
-        {"name": "Sałatka grecka", "description": "Feta, oliwki, warzywa", "price": "21,00 zł"},
-        {"name": "Zupa pomidorowa", "description": "Makaron, natka pietruszki", "price": "14,00 zł"},
-        {"name": "Makaron pesto", "description": "Parmezan, orzeszki piniowe", "price": "26,00 zł"},
-        {"name": "Naleśniki z twarogiem", "description": "2 sztuki, sos owocowy", "price": "18,00 zł"},
-    ]
-    cart_items = [
-        {"name": "Kotlet schabowy", "qty": 1, "price": "29,00 zł"},
-        {"name": "Zupa pomidorowa", "qty": 2, "price": "28,00 zł"},
-    ]
     context = {
         "request": request,
-        "menu_items": menu_items,
-        "cart_items": cart_items,
-        "total": "57,00 zł",
         "order_ui_build": f"{ORDER_UI_BUILD_ID} {ORDER_UI_BUILD_TS}",
         "order_ui_git_sha": ORDER_UI_BUILD_ID,
         "order_ui_template_path": ORDER_TEMPLATE_PATH,
@@ -140,6 +128,5 @@ def api_root() -> dict[str, str]:
         "app": settings.app_name,
         "message": "MVP 1.0 single restaurant catering API",
         "docs": "/docs",
-        "admin": "/api/v1/admin",
-        "order": "/api/v1/order",
+        "api_v1": "/api/v1",
     }
