@@ -176,6 +176,53 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             )
             connection.execute(text("UPDATE users SET restaurant_id = NULL WHERE role = 'customer'"))
 
+        if "customers" in table_names:
+            customer_columns = _sqlite_column_names(connection, "customers")
+            if "user_id" not in customer_columns:
+                connection.execute(text("ALTER TABLE customers ADD COLUMN user_id INTEGER"))
+
+            if "users" in table_names and "email" in customer_columns:
+                # Backfill links for legacy rows based on matching unique email.
+                connection.execute(
+                    text(
+                        """
+                        UPDATE customers
+                        SET user_id = (
+                            SELECT users.id
+                            FROM users
+                            WHERE users.email = customers.email
+                            LIMIT 1
+                        )
+                        WHERE user_id IS NULL
+                          AND email IS NOT NULL
+                          AND TRIM(email) != ''
+                        """
+                    )
+                )
+
+            # Keep the latest row linked if duplicates were produced historically.
+            connection.execute(
+                text(
+                    """
+                    UPDATE customers
+                    SET user_id = NULL
+                    WHERE user_id IS NOT NULL
+                      AND id NOT IN (
+                          SELECT MAX(id)
+                          FROM customers
+                          WHERE user_id IS NOT NULL
+                          GROUP BY user_id
+                      )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_user_id "
+                    "ON customers(user_id) WHERE user_id IS NOT NULL"
+                )
+            )
+
         if "catalog_items" in table_names:
             catalog_columns: set[str] = _sqlite_column_names(connection, "catalog_items")
             if "is_standard" not in catalog_columns:

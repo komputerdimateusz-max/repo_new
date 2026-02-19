@@ -133,6 +133,46 @@ def test_startup_migration_prevents_order_items_crash(tmp_path: Path, monkeypatc
     assert order_response.status_code == 200
 
 
+
+
+def test_ensure_sqlite_schema_adds_customers_user_id_column(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_customers.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customers RENAME TO customers_old"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE customers (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
+                    company_id INTEGER NULL,
+                    postal_code VARCHAR(16) NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO customers (id, name, email, company_id, postal_code, is_active)
+                SELECT id, name, email, company_id, postal_code, is_active
+                FROM customers_old
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE customers_old"))
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        customer_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(customers);"))}
+
+    assert "user_id" in customer_columns
+
 def test_ensure_sqlite_schema_adds_order_status_columns(tmp_path: Path) -> None:
     engine = _build_test_engine(tmp_path / "legacy_orders_status.db")
     Base.metadata.create_all(bind=engine)

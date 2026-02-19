@@ -3,13 +3,14 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db import session as db_session
 from app.main import app
+from app.models import Customer
 
 
 def _build_test_engine(db_file: Path) -> Engine:
@@ -39,6 +40,11 @@ def test_register_creates_user(tmp_path: Path, monkeypatch) -> None:
     assert body["id"] > 0
     assert body["email"] == "user@example.com"
     assert body["role"] == "customer"
+
+    with testing_session_local() as db:
+        customer = db.scalar(select(Customer).where(Customer.user_id == int(body["id"])).limit(1))
+        assert customer is not None
+        assert customer.email == "user@example.com"
 
 
 def test_login_returns_token(tmp_path: Path, monkeypatch) -> None:
