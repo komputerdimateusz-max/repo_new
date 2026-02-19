@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import Customer, User
 
@@ -23,10 +24,22 @@ def ensure_default_admin(db: Session) -> bool:
     """
     existing_admin = db.scalar(select(User).where(User.username == "admin").limit(1))
     if existing_admin is not None:
+        updates_applied = False
         if not existing_admin.is_active:
             existing_admin.is_active = True
-            db.commit()
+            updates_applied = True
             logger.info("[BOOTSTRAP] Admin exists but was inactive; account re-activated.")
+        normalized_role = str(existing_admin.role or "CUSTOMER").strip().upper()
+        if settings.debug and existing_admin.username == "admin" and normalized_role != "ADMIN":
+            logger.warning(
+                "[BOOTSTRAP] Dev-only admin role auto-fix applied for username=admin (old=%s, new=ADMIN).",
+                existing_admin.role,
+            )
+            existing_admin.role = "ADMIN"
+            updates_applied = True
+
+        if updates_applied:
+            db.commit()
         logger.info("[BOOTSTRAP] Admin exists")
         return True
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import session as db_session
@@ -56,7 +56,30 @@ def test_customer_cannot_access_admin_or_restaurant(tmp_path: Path, monkeypatch)
         admin_res = client.get("/admin", follow_redirects=False)
         restaurant_res = client.get("/restaurant", follow_redirects=False)
 
-    assert admin_res.status_code == 303
-    assert admin_res.headers["location"] == "/"
+    assert admin_res.status_code == 403
     assert restaurant_res.status_code == 303
     assert restaurant_res.headers["location"] == "/"
+
+
+def test_admin_login_normalizes_role_and_debug_whoami(tmp_path: Path, monkeypatch) -> None:
+    session_local = _prepare_db(tmp_path, monkeypatch)
+    with session_local() as db:
+        db.add(User(username="admin", password_hash=get_password_hash("123"), role="admin", is_active=True))
+        db.commit()
+
+    with TestClient(app) as client:
+        login_res = client.post("/login", data={"username": "admin", "password": "123"}, follow_redirects=False)
+        whoami = client.get("/__debug/whoami")
+
+    assert login_res.status_code == 303
+    assert login_res.headers["location"] == "/admin"
+    assert whoami.status_code == 200
+    payload = whoami.json()
+    assert payload["session"]["role"] == "ADMIN"
+    assert payload["session"]["username"] == "admin"
+    assert payload["db_user"]["role"] == "ADMIN"
+    assert payload["db_user"]["is_active"] is True
+
+    with session_local() as db:
+        db_role = db.scalar(select(User.role).where(User.username == "admin"))
+    assert db_role == "ADMIN"
