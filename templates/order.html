@@ -3,11 +3,7 @@
 {% block title %}Place Order | Złóż zamówienie{% endblock %}
 
 {% block content %}
-<div style="position:fixed;top:0.5rem;left:0.5rem;z-index:99999;background:#ff0033;color:#fff600;padding:1rem 1.25rem;border:4px solid #000;font-size:1.15rem;font-weight:900;letter-spacing:0.03em;text-transform:uppercase;box-shadow:0 0 0 4px #fff,0 12px 28px rgba(0,0,0,0.45);max-width:min(90vw,760px);line-height:1.3;">
-  ORDER UI NEW TEMPLATE LIVE | {{ order_ui_template_name }} | {{ order_ui_git_sha }}
-</div>
-
-<div class="order-page">
+<div class="order-page" data-order-page>
   <header class="topbar card-shell">
     <div class="topbar-left">
       <h1>Złóż zamówienie</h1>
@@ -16,11 +12,8 @@
 
     <div class="topbar-center">
       <label class="sr-only" for="company-select">Wybierz firmę</label>
-      <select id="company-select" class="company-select" aria-label="Wybierz firmę">
-        <option selected>Wybierz firmę</option>
-        <option>Acme Sp. z o.o.</option>
-        <option>Tech Park Logistics</option>
-        <option>North Factory Team</option>
+      <select id="company-select" class="company-select" aria-label="Wybierz firmę" data-company-select>
+        <option value="">Wybierz firmę</option>
       </select>
     </div>
 
@@ -29,118 +22,57 @@
         <span class="postal-code">Kod: 66-400</span>
         <a href="#" aria-label="Zmień kod w profilu">Zmień w profilu</a>
       </div>
-      <div class="icon-group" aria-hidden="true">
-        <span>✉️</span>
-        <span>👤</span>
-      </div>
     </div>
   </header>
 
   <main class="order-layout">
     <section class="menu-panel card-shell" aria-label="Menu">
       <header class="menu-heading">
-        <h2>Menu na: DZIŚ (wt, 18.02)</h2>
-        <p>Zamówienia przyjmujemy do <strong>11:00</strong></p>
+        <h2 data-menu-title>Menu na: DZIŚ</h2>
+        <p>Zamówienia przyjmujemy do <strong data-cutoff-time>--:--</strong></p>
+        <p data-cutoff-banner hidden style="color:#b42318;font-weight:700;">Zamówienia na dziś są zamknięte.</p>
       </header>
 
-      <nav class="category-tabs" aria-label="Kategorie menu">
-        <button class="tab active" type="button">Dania dnia</button>
-        <button class="tab" type="button">Zupy</button>
-        <button class="tab" type="button">Drugie</button>
-        <button class="tab" type="button">Fit</button>
-        <button class="tab" type="button">Napoje</button>
-        <button class="tab" type="button">Dodatki</button>
-      </nav>
+      <nav class="category-tabs" aria-label="Kategorie menu" data-category-tabs></nav>
 
-      <div class="menu-grid">
-        {% for item in menu_items %}
-        {% set state = namespace(qty=0) %}
-        {% for cart in cart_items %}
-          {% if cart.name == item.name %}
-            {% set state.qty = cart.qty %}
-          {% endif %}
-        {% endfor %}
-        {% set badge_cycle = ['STANDARD', 'WEGE', 'NOWE'] %}
-        {% set badge = badge_cycle[(loop.index0 % 3)] %}
-
-        <article class="menu-card" data-menu-card>
-          <img class="menu-thumb" src="/static/placeholder_food.svg" alt="Zdjęcie dania {{ item.name }}" loading="lazy" />
-
-          <div class="menu-card-content">
-            <div class="menu-copy">
-              <h3>{{ item.name }}</h3>
-              <p>{{ item.description }}</p>
-            </div>
-
-            <div class="menu-meta">
-              <span class="badge {{ badge | lower }}">{{ badge }}</span>
-              <div class="price-row">
-                <span class="price">{{ item.price }}</span>
-                <button
-                  type="button"
-                  class="add-btn"
-                  data-add-btn
-                  {% if state.qty > 0 %}hidden{% endif %}
-                >
-                  Dodaj
-                </button>
-                <div
-                  class="qty-stepper"
-                  data-qty-control
-                  {% if state.qty == 0 %}hidden{% endif %}
-                >
-                  <button type="button" aria-label="Zmniejsz ilość" data-action="decrease">−</button>
-                  <span data-qty>{{ state.qty }}</span>
-                  <button type="button" aria-label="Zwiększ ilość" data-action="increase">+</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
+      <div class="menu-grid" data-menu-grid></div>
     </section>
 
     <aside class="cart-panel card-shell" aria-label="Koszyk">
       <h2>Twój koszyk</h2>
-
-      <ul class="cart-list">
-        {% for item in cart_items %}
-        <li>
-          <div>
-            <strong>⭐ {{ item.name }}</strong>
-            <small>{{ item.qty }} × {{ item.price }}</small>
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
+      <p data-inline-message hidden></p>
+      <ul class="cart-list" data-cart-list></ul>
 
       <label class="sr-only" for="cart-note">Uwagi do zamówienia</label>
-      <textarea id="cart-note" rows="3" placeholder="Uwagi do zamówienia..."></textarea>
+      <textarea id="cart-note" rows="3" placeholder="Uwagi do zamówienia..." data-cart-notes></textarea>
 
       <div class="payment-row" role="group" aria-label="Metoda płatności">
-        <button class="pay-btn blik" type="button">BLIK</button>
-        <button class="pay-btn" type="button">Karta</button>
-        <button class="pay-btn" type="button">Gotówka</button>
+        <button class="pay-btn" type="button" data-payment-method="BLIK">BLIK</button>
+        <button class="pay-btn" type="button" data-payment-method="KARTA">Karta</button>
+        <button class="pay-btn" type="button" data-payment-method="GOTOWKA">Gotówka</button>
       </div>
 
       <dl class="summary-lines">
         <div>
           <dt>Suma:</dt>
-          <dd>{{ total }}</dd>
+          <dd data-summary-subtotal>0,00 zł</dd>
         </div>
         <div>
           <dt>Dostawa:</dt>
-          <dd>5,00 zł</dd>
+          <dd data-summary-delivery>0,00 zł</dd>
         </div>
         <div>
-          <dt>Dostawa:</dt>
-          <dd>12:00–13:00</dd>
+          <dt>Okno:</dt>
+          <dd data-summary-window>--:--–--:--</dd>
+        </div>
+        <div>
+          <dt>Razem:</dt>
+          <dd data-summary-total>0,00 zł</dd>
         </div>
       </dl>
 
-      <button type="button" class="checkout-btn">Zamawiam i płacę</button>
-      <p class="cart-footnote">To zamówienie zostanie zrealizowane <a href="#">dajdaj</a></p>
+      <button type="button" class="checkout-btn" data-checkout-btn disabled>Zamawiam i płacę</button>
+      <p class="cart-footnote">To zamówienie zostanie zrealizowane dzisiaj.</p>
     </aside>
   </main>
 </div>
