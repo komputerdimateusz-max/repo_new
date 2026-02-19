@@ -129,7 +129,7 @@ async def _form_data(request: Request) -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
-    current = _require_role_page(request, {"CUSTOMER"})
+    current = _require_role_page(request, {"CUSTOMER", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
     context = {
@@ -204,6 +204,36 @@ def debug_auth(request: Request):
         "role": request.session.get("role"),
         "cookie_seen": "session" in request.cookies,
     }
+
+
+@app.get("/__debug/whoami", include_in_schema=False)
+def debug_whoami(request: Request):
+    user_id = request.session.get("user_id")
+    role = request.session.get("role")
+    username = request.session.get("username")
+    return {
+        "logged_in": user_id is not None,
+        "username": username,
+        "role": role,
+        "user_id": user_id,
+    }
+
+
+@app.get("/__debug/menu", include_in_schema=False)
+def debug_menu():
+    with SessionLocal() as db:
+        rows = db.scalars(select(MenuItem).order_by(MenuItem.id.asc())).all()
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "price": str(item.price),
+            "category": item.category,
+            "is_active": item.is_active,
+        }
+        for item in rows
+    ]
 
 
 @app.get("/profile", response_class=HTMLResponse)
@@ -309,7 +339,7 @@ def restaurant_menu(request: Request):
         return current
     with SessionLocal() as db:
         items = db.scalars(select(MenuItem).order_by(MenuItem.id.desc())).all()
-    return render_template(request, "restaurant_menu.html", {"items": items})
+    return render_template(request, "restaurant_menu.html", {"items": items, "categories": MENU_CATEGORIES})
 
 
 @app.get("/restaurant/menu/new", response_class=HTMLResponse)
@@ -336,16 +366,22 @@ def restaurant_menu_edit(request: Request, item_id: int):
 @app.post("/restaurant/menu/new", response_class=RedirectResponse)
 async def restaurant_menu_create(request: Request):
     form = await _form_data(request)
-    name = form.get("name", "")
+    name = form.get("name", "").strip()
     description = form.get("description", "")
-    price = Decimal(form.get("price", "0"))
+    price_raw = form.get("price", "")
     category = form.get("category", "")
-    is_standard = form.get("is_standard") == "true"
-    is_active = form.get("is_active") == "true"
+    is_standard = form.get("is_standard") in {"true", "on"}
+    is_active = form.get("is_active") in {"true", "on"}
     image_url = form.get("image_url", "")
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    try:
+        price = Decimal(price_raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Price must be numeric") from exc
     with SessionLocal() as db:
         db.add(MenuItem(name=name, description=description or None, price=price, category=category, is_standard=is_standard, is_active=is_active, image_url=image_url or None))
         db.commit()
