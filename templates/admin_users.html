@@ -1,13 +1,14 @@
 <!doctype html><html><body>
 <h1>Users</h1>
+<p>{{ request.session.get("username", "") }} ({{ request.session.get("role", "") }}) • <a href="/admin">Admin</a></p>
 <a href="/admin/users/new">Create user</a>
 <table border="1" cellpadding="6">
-<tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Change password</th></tr>
+<tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Created at</th><th>Change password</th></tr>
 {% for user in users %}
 <tr>
-<td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.is_active }}</td>
+<td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.is_active }}</td><td>{{ user.created_at }}</td>
 <td>
-  <form method="post" action="/admin/users/{{ user.id }}/password">
+  <form method="post" action="/admin/users/{{ user.id }}/reset-password">
     <input type="password" name="password" placeholder="new password" required />
     <button type="submit">Update</button>
   </form>

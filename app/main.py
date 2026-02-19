@@ -18,6 +18,7 @@ from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
+from app.auth import get_current_user, role_landing
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.db.base import Base
@@ -80,17 +81,11 @@ def startup() -> None:
 
 
 def _session_user(request: Request) -> dict[str, str | int] | None:
-    user_id = request.session.get("user_id")
-    role = request.session.get("role")
-    username = request.session.get("username")
-    if user_id and role and username:
-        return {"user_id": user_id, "role": role, "username": username}
-    return None
+    return get_current_user(request)
 
 
 def _role_landing(role: str | None) -> str:
-    role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
-    return role_redirect.get(str(role), "/")
+    return role_landing(role)
 
 
 def _require_login(request: Request) -> dict[str, str | int] | RedirectResponse:
@@ -105,7 +100,7 @@ def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | i
     if isinstance(current, RedirectResponse):
         return current
     if str(current["role"]) not in allowed:
-        return RedirectResponse(url=_role_landing(str(current["role"])), status_code=303)
+        return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
     return current
 
 
@@ -133,7 +128,7 @@ def root(request: Request):
 def login_page(request: Request, error: str | None = None):
     current = _session_user(request)
     if current:
-        return RedirectResponse(url=_role_landing(str(current["role"])), status_code=303)
+        return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": error})
 
 
@@ -166,7 +161,7 @@ async def login_submit(request: Request):
             request.session["customer_id"] = customer.id
             request.session["customer_email"] = customer.email
 
-    return RedirectResponse(url=_role_landing(user_role), status_code=303)
+    return RedirectResponse(url=role_landing(user_role), status_code=303)
 
 
 @app.post("/logout", response_class=RedirectResponse)
@@ -238,6 +233,7 @@ def admin_users_new(request: Request):
 
 
 @app.post("/admin/users", response_class=RedirectResponse)
+@app.post("/admin/users/new", response_class=RedirectResponse)
 async def admin_users_create(request: Request):
     form = await _form_data(request)
     username = form.get("username", "")
@@ -266,6 +262,7 @@ async def admin_users_create(request: Request):
 
 
 @app.post("/admin/users/{user_id}/password", response_class=RedirectResponse)
+@app.post("/admin/users/{user_id}/reset-password", response_class=RedirectResponse)
 async def admin_user_password(request: Request, user_id: int):
     form = await _form_data(request)
     password = form.get("password", "")
@@ -320,6 +317,7 @@ def restaurant_menu_edit(request: Request, item_id: int):
 
 
 @app.post("/restaurant/menu", response_class=RedirectResponse)
+@app.post("/restaurant/menu/new", response_class=RedirectResponse)
 async def restaurant_menu_create(request: Request):
     form = await _form_data(request)
     name = form.get("name", "")
@@ -362,6 +360,20 @@ async def restaurant_menu_update(request: Request, item_id: int):
         item.is_standard = is_standard
         item.is_active = is_active
         item.image_url = image_url or None
+        db.commit()
+    return RedirectResponse(url="/restaurant/menu", status_code=303)
+
+
+@app.post("/restaurant/menu/{item_id}/toggle-active", response_class=RedirectResponse)
+def restaurant_menu_toggle_active(request: Request, item_id: int):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+    with SessionLocal() as db:
+        item = db.get(MenuItem, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        item.is_active = not item.is_active
         db.commit()
     return RedirectResponse(url="/restaurant/menu", status_code=303)
 

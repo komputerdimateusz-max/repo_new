@@ -1,7 +1,9 @@
 <!doctype html><html><body>
 <h1>Admin panel</h1>
+<p>{{ request.session.get("username", username) }} ({{ request.session.get("role", "ADMIN") }})</p>
 <ul>
   <li><a href="/admin/users">Manage Users</a></li>
+  <li><a href="/restaurant">Restaurant panel</a></li>
   <li><a href="/restaurant/settings">Settings</a></li>
 </ul>
 <form method="post" action="/logout"><button type="submit">Logout</button></form>

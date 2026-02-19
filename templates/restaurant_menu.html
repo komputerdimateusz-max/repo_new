@@ -1,12 +1,18 @@
 <!doctype html><html><body>
 <h1>Menu items</h1>
+<p>{{ request.session.get("username", "") }} ({{ request.session.get("role", "") }}) • <a href="/restaurant">Panel restauracji</a></p>
 <a href="/restaurant/menu/new">New item</a>
 <table border="1" cellpadding="6">
-<tr><th>Name</th><th>Category</th><th>Price</th><th>Active</th><th>Actions</th></tr>
+<tr><th>Name</th><th>Category</th><th>Price</th><th>Standard</th><th>Active</th><th>Actions</th></tr>
 {% for item in items %}
 <tr>
-  <td>{{ item.name }}</td><td>{{ item.category }}</td><td>{{ item.price }}</td><td>{{ item.is_active }}</td>
-  <td><a href="/restaurant/menu/{{ item.id }}/edit">Edit</a></td>
+  <td>{{ item.name }}</td><td>{{ item.category }}</td><td>{{ item.price }}</td><td>{{ item.is_standard }}</td><td>{{ item.is_active }}</td>
+  <td>
+    <a href="/restaurant/menu/{{ item.id }}/edit">Edit</a>
+    <form method="post" action="/restaurant/menu/{{ item.id }}/toggle-active" style="display:inline;">
+      <button type="submit">Toggle active</button>
+    </form>
+  </td>
 </tr>
 {% endfor %}
 </table>
