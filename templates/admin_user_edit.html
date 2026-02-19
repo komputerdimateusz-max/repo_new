@@ -1,0 +1,36 @@
+<!doctype html><html><body>
+<h1>Edit user {{ user.username }}</h1>
+{% if message %}<p style="color:green;">{{ message }}</p>{% endif %}
+<ul>
+  <li>ID: {{ user.id }}</li>
+  <li>Username: {{ user.username }}</li>
+  <li>Role: {{ user.role }}</li>
+  <li>Active: {{ user.is_active }}</li>
+  <li>Created at: {{ user.created_at }}</li>
+  <li>Last login at: {{ user.last_login_at }}</li>
+</ul>
+
+<h2>Change role</h2>
+<form method="post" action="/admin/users/{{ user.id }}/role">
+  <select name="role">
+    {% for role in roles %}
+      <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ role }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Save role</button>
+</form>
+
+<h2>Reset password</h2>
+<form method="post" action="/admin/users/{{ user.id }}/password">
+  <input type="password" name="new_password" required minlength="4" />
+  <button type="submit">Save password</button>
+</form>
+
+<h2>Activate/deactivate</h2>
+<form method="post" action="/admin/users/{{ user.id }}/active">
+  <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %} /> Active</label>
+  <button type="submit">Save status</button>
+</form>
+
+<p><a href="/admin/users">Back to users</a></p>
+</body></html>

@@ -15,12 +15,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
 from app.auth import get_current_user, role_landing
 from app.core.config import settings
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
 from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
@@ -121,6 +122,19 @@ def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | i
     return current
 
 
+def _forbidden_page(request: Request) -> HTMLResponse:
+    return HTMLResponse("<!doctype html><html><body><h1>403 Forbidden</h1><p>Admin access required.</p></body></html>", status_code=403)
+
+
+def _require_admin_page(request: Request) -> dict[str, str | int] | RedirectResponse | HTMLResponse:
+    current = _require_login(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if str(current["role"]) != "ADMIN":
+        return _forbidden_page(request)
+    return current
+
+
 async def _form_data(request: Request) -> dict[str, str]:
     body = (await request.body()).decode()
     parsed = parse_qs(body, keep_blank_values=True)
@@ -154,6 +168,12 @@ async def login_submit(request: Request):
     username = form.get("username", "")
     password = form.get("password", "")
     with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == username.strip()).limit(1))
+        if user is None or not verify_password(password, user.password_hash):
+            return login_page(request, error="Invalid username or password")
+        if not user.is_active:
+            return login_page(request, error="This account is inactive. Please contact an administrator.")
+
         user = authenticate_user(db, username=username, password=password)
         if user is None:
             return login_page(request, error="Invalid username or password")
@@ -254,74 +274,151 @@ def my_order_page(request: Request):
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_home(request: Request):
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return render_template(request, "admin_home.html", {"username": current["username"]})
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request):
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
         return current
+    if isinstance(current, HTMLResponse):
+        return current
+    message = request.query_params.get("message")
     with SessionLocal() as db:
         users = db.scalars(select(User).order_by(User.id.asc())).all()
-    return render_template(request, "admin_users.html", {"users": users})
+    return render_template(request, "admin_users.html", {"users": users, "message": message})
 
 
 @app.get("/admin/users/new", response_class=HTMLResponse)
 def admin_users_new(request: Request):
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
         return current
-    return render_template(request, "admin_users_new.html")
+    if isinstance(current, HTMLResponse):
+        return current
+    return render_template(request, "admin_users_new.html", {"error": None, "form": {"username": "", "role": "RESTAURANT", "is_active": True}})
 
 
 @app.post("/admin/users", response_class=RedirectResponse)
 @app.post("/admin/users/new", response_class=RedirectResponse)
 async def admin_users_create(request: Request):
-    form = await _form_data(request)
-    username = form.get("username", "")
-    password = form.get("password", "")
-    role = form.get("role", "")
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
         return current
+    if isinstance(current, HTMLResponse):
+        return current
+
+    form = await _form_data(request)
+    username = form.get("username", "").strip()
+    password = form.get("password", "")
+    role = form.get("role", "").strip()
+    is_active = form.get("is_active") in {"true", "on", "1"}
+
+    if len(username) < 3:
+        return render_template(request, "admin_users_new.html", {"error": "Username must be at least 3 characters.", "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
+    if len(password) < 4:
+        return render_template(request, "admin_users_new.html", {"error": "Password must be at least 4 characters.", "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
     try:
         clean_role = normalize_user_role(role)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if clean_role not in {"RESTAURANT", "CUSTOMER"}:
-        raise HTTPException(status_code=400, detail="Invalid role for admin creation")
+        return render_template(request, "admin_users_new.html", {"error": str(exc), "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
     with SessionLocal() as db:
-        existing = db.scalar(select(User).where(User.username == username.strip()).limit(1))
+        existing = db.scalar(select(User).where(User.username == username).limit(1))
         if existing:
-            raise HTTPException(status_code=400, detail="Username already exists")
-        user = User(username=username.strip(), password_hash=get_password_hash(password), role=clean_role, is_active=True)
+            return render_template(request, "admin_users_new.html", {"error": "Username already exists.", "form": {"username": username, "role": clean_role, "is_active": is_active}})
+        user = User(username=username, password_hash=get_password_hash(password), role=clean_role, is_active=is_active)
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            db.rollback()
+            return render_template(request, "admin_users_new.html", {"error": "Username already exists.", "form": {"username": username, "role": clean_role, "is_active": is_active}})
         if clean_role == "CUSTOMER":
             ensure_customer_profile(db, user)
-    return RedirectResponse(url="/admin/users", status_code=303)
+    return RedirectResponse(url="/admin/users?message=User+created", status_code=303)
+
+
+@app.get("/admin/users/{user_id}", response_class=HTMLResponse)
+def admin_user_edit(request: Request, user_id: int):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+    message = request.query_params.get("message")
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+    return render_template(request, "admin_user_edit.html", {"user": user, "message": message, "roles": ("ADMIN", "RESTAURANT", "CUSTOMER")})
+
+
+@app.post("/admin/users/{user_id}/role", response_class=RedirectResponse)
+async def admin_user_role(request: Request, user_id: int):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+    form = await _form_data(request)
+    role = form.get("role", "")
+    try:
+        clean_role = normalize_user_role(role)
+    except ValueError as exc:
+        return RedirectResponse(url=f"/admin/users/{user_id}?message={str(exc).replace(' ', '+')}", status_code=303)
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.role = clean_role
+        db.commit()
+    return RedirectResponse(url=f"/admin/users/{user_id}?message=Role+updated", status_code=303)
 
 
 @app.post("/admin/users/{user_id}/password", response_class=RedirectResponse)
 @app.post("/admin/users/{user_id}/reset-password", response_class=RedirectResponse)
 async def admin_user_password(request: Request, user_id: int):
-    form = await _form_data(request)
-    password = form.get("password", "")
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
         return current
+    if isinstance(current, HTMLResponse):
+        return current
+    form = await _form_data(request)
+    password = form.get("new_password", form.get("password", ""))
+    if len(password) < 4:
+        return RedirectResponse(url=f"/admin/users/{user_id}?message=Password+must+be+at+least+4+characters", status_code=303)
     with SessionLocal() as db:
         user = db.get(User, user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         user.password_hash = get_password_hash(password)
         db.commit()
-    return RedirectResponse(url="/admin/users", status_code=303)
+    return RedirectResponse(url=f"/admin/users/{user_id}?message=Password+updated", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/active", response_class=RedirectResponse)
+async def admin_user_active(request: Request, user_id: int):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+    form = await _form_data(request)
+    is_active = form.get("is_active") in {"true", "on", "1"}
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = is_active
+        db.commit()
+    return RedirectResponse(url=f"/admin/users/{user_id}?message=Status+updated", status_code=303)
 
 
 @app.get("/restaurant", response_class=HTMLResponse)
@@ -466,40 +563,50 @@ async def restaurant_settings_save(request: Request):
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page(request: Request):
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return render_template(request, "admin_settings.html")
 
 
 @app.get("/admin/menu", response_class=HTMLResponse)
 def admin_menu_page(request: Request):
-    current = _require_role_page(request, {"ADMIN"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return render_template(request, "admin_menu.html")
 
 
 @app.get("/admin/specials", response_class=HTMLResponse)
 def admin_specials_page(request: Request):
-    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return render_template(request, "admin_specials.html")
 
 
 @app.get("/admin/orders/today", response_class=HTMLResponse)
 def admin_orders_page(request: Request):
-    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return render_template(request, "admin_orders_today.html")
 
 
 @app.get("/admin/orders/today.csv", response_class=RedirectResponse)
 def admin_orders_csv_redirect(request: Request):
-    current = _require_role_page(request, {"ADMIN", "RESTAURANT"})
+    current = _require_admin_page(request)
     if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
         return current
     return RedirectResponse(url="/api/v1/admin/orders/today.csv", status_code=307)
 @app.get("/__debug/routes", include_in_schema=False, response_class=PlainTextResponse)

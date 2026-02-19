@@ -1,20 +1,22 @@
 <!doctype html><html><body>
 <h1>Users</h1>
-<p>{{ current_username|default("Guest") }} ({{ current_user_role|default("ADMIN") }}) • <a href="/admin">Admin</a></p>
-<a href="/admin/users/new">Create user</a>
+{% if message %}<p style="color:green;">{{ message }}</p>{% endif %}
+<p><a href="/admin">Back to admin</a></p>
+<p><a href="/admin/users/new">Create user</a></p>
 <table border="1" cellpadding="6">
-<tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Created at</th><th>Change password</th></tr>
-{% for user in users %}
-<tr>
-<td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.is_active }}</td><td>{{ user.created_at }}</td>
-<td>
-  <form method="post" action="/admin/users/{{ user.id }}/reset-password">
-    <input type="password" name="password" placeholder="new password" required />
-    <button type="submit">Update</button>
-  </form>
-</td>
-</tr>
-{% endfor %}
+  <tr>
+    <th>id</th><th>username</th><th>role</th><th>is_active</th><th>created_at</th><th>last_login_at</th><th>actions</th>
+  </tr>
+  {% for user in users %}
+  <tr>
+    <td>{{ user.id }}</td>
+    <td>{{ user.username }}</td>
+    <td>{{ user.role }}</td>
+    <td>{{ user.is_active }}</td>
+    <td>{{ user.created_at }}</td>
+    <td>{{ user.last_login_at }}</td>
+    <td><a href="/admin/users/{{ user.id }}">Edit</a></td>
+  </tr>
+  {% endfor %}
 </table>
-<a href="/admin">Back</a>
 </body></html>

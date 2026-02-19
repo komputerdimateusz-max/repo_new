@@ -1,10 +1,7 @@
 <!doctype html><html><body>
-<h1>Admin panel</h1>
-<p>{{ current_username|default(username)|default("Guest") }} ({{ current_user_role|default("ADMIN") }})</p>
+<h1>Admin</h1>
 <ul>
-  <li><a href="/admin/users">Manage Users</a></li>
-  <li><a href="/restaurant">Restaurant panel</a></li>
-  <li><a href="/restaurant/settings">Settings</a></li>
+  <li><a href="/admin/users">Users</a></li>
+  <li><a href="/logout">Logout</a></li>
 </ul>
-<form method="post" action="/logout"><button type="submit">Logout</button></form>
 </body></html>

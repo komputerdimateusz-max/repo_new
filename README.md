@@ -33,6 +33,16 @@ On first startup, if no admin exists, the app creates:
 4. Restaurant user logs in and uses `/restaurant/menu` to create/edit menu items.
 5. Create `CUSTOMER` users from admin panel to access `/` ordering page.
 
+## Mandatory admin smoke test (user management)
+1. Login as `admin / 123`.
+2. Go to `/admin/users/new`.
+3. Create user:
+   - username: `restauracja`
+   - password: `test123`
+   - role: `RESTAURANT`
+4. Logout and login as `restauracja / test123`.
+5. Confirm you land on `/restaurant`.
+
 ## Main URLs
 - `/` - customer order page
 - `/login` - username/password login
