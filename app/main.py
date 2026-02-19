@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.parse import parse_qs
 from pathlib import Path
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
@@ -27,8 +29,7 @@ from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
 from app.models import MenuItem, RestaurantSetting, User
-from app.models.user import normalize_user_role
-from app.services.account_service import authenticate_user, ensure_customer_profile, ensure_default_admin
+from app.services.account_service import ensure_customer_profile, ensure_default_admin
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
@@ -106,6 +107,27 @@ def _role_landing(role: str | None) -> str:
     return role_landing(role)
 
 
+def _normalize_role_for_session(db: Session, user: User) -> str:
+    """Ensure persisted user role is canonical and safe for session storage."""
+    normalized_role = str(user.role or "CUSTOMER").strip().upper() or "CUSTOMER"
+    if normalized_role not in {"ADMIN", "RESTAURANT", "CUSTOMER"}:
+        normalized_role = "CUSTOMER"
+    if normalized_role != user.role:
+        user.role = normalized_role
+        db.commit()
+        db.refresh(user)
+    return normalized_role
+
+
+def _login_redirect_for_role(role: str) -> str:
+    normalized = str(role).upper()
+    if normalized == "ADMIN":
+        return "/admin"
+    if normalized == "RESTAURANT":
+        return "/restaurant"
+    return "/"
+
+
 def _require_login(request: Request) -> dict[str, str | int] | RedirectResponse:
     current = _session_user(request)
     if current:
@@ -174,16 +196,16 @@ async def login_submit(request: Request):
         if not user.is_active:
             return login_page(request, error="This account is inactive. Please contact an administrator.")
 
-        user = authenticate_user(db, username=username, password=password)
-        if user is None:
-            return login_page(request, error="Invalid username or password")
+        user_role = _normalize_role_for_session(db, user)
+        user.last_login_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
 
         request.session.clear()
         request.session["user_id"] = user.id
-        request.session["role"] = user.role
         request.session["username"] = user.username
+        request.session["role"] = user_role
 
-        user_role = user.role
         if user_role == "CUSTOMER":
             try:
                 customer = ensure_customer_profile(db, user)
@@ -197,7 +219,7 @@ async def login_submit(request: Request):
             request.session["customer_id"] = customer.id
             request.session["customer_email"] = customer.email
 
-    return RedirectResponse(url=role_landing(user_role), status_code=303)
+    return RedirectResponse(url=_login_redirect_for_role(user_role), status_code=303)
 
 
 @app.post("/logout", response_class=RedirectResponse)
@@ -228,14 +250,30 @@ def debug_auth(request: Request):
 
 @app.get("/__debug/whoami", include_in_schema=False)
 def debug_whoami(request: Request):
+    client_host = (request.client.host if request.client else "") or ""
+    is_local = client_host in {"127.0.0.1", "::1", "localhost", "testclient"}
+    if not settings.debug and not is_local:
+        raise HTTPException(status_code=404, detail="Not found")
+
     user_id = request.session.get("user_id")
-    role = request.session.get("role")
     username = request.session.get("username")
+    role = request.session.get("role")
+
+    db_user_payload = None
+    if user_id is not None:
+        with SessionLocal() as db:
+            db_user = db.get(User, int(user_id))
+            if db_user is not None:
+                db_user_payload = {
+                    "id": db_user.id,
+                    "username": db_user.username,
+                    "role": db_user.role,
+                    "is_active": db_user.is_active,
+                }
+
     return {
-        "logged_in": user_id is not None,
-        "username": username,
-        "role": role,
-        "user_id": user_id,
+        "session": {"user_id": user_id, "username": username, "role": role},
+        "db_user": db_user_payload,
     }
 
 
