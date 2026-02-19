@@ -199,7 +199,7 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
 
     customer = _require_customer(request, db)
     if customer.company_id is None:
-        raise HTTPException(status_code=422, detail="Company selection is required before ordering.")
+        raise HTTPException(status_code=400, detail="Select company in profile first.")
     company = db.get(Company, customer.company_id)
     if company is None or not company.is_active:
         raise HTTPException(status_code=422, detail="Customer profile company is invalid.")

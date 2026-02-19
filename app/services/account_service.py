@@ -55,7 +55,10 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
     return user
 
 
-def ensure_customer_profile(db: Session, user: User) -> Customer:
+def ensure_customer_profile(db: Session, user: User) -> Customer | None:
+    if user.role != "CUSTOMER":
+        return None
+
     customer = db.scalar(select(Customer).where(Customer.user_id == user.id).limit(1))
     if customer is not None:
         return customer

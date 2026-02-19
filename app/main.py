@@ -154,7 +154,15 @@ async def login_submit(request: Request):
 
         user_role = user.role
         if user_role == "CUSTOMER":
-            customer = ensure_customer_profile(db, user)
+            try:
+                customer = ensure_customer_profile(db, user)
+            except Exception:
+                logger.exception("[AUTH] Failed to ensure customer profile during login for user_id=%s", user.id)
+                request.session.clear()
+                return login_page(request, error="Could not finish login. Please try again.")
+            if customer is None:
+                request.session.clear()
+                return login_page(request, error="Could not finish login. Please try again.")
             request.session["customer_id"] = customer.id
             request.session["customer_email"] = customer.email
 
