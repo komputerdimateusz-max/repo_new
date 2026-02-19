@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.user import User
+from app.models.user import Customer, User
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -27,6 +27,25 @@ def create_user(
 ) -> User:
     user = User(username=username, password_hash=hashed_password, role=role, email=email, is_active=True)
     db.add(user)
+    db.flush()
+
+    if role == "CUSTOMER":
+        fallback_email = email or f"{username}@local"
+        existing_customer = db.scalar(select(Customer).where(Customer.email == fallback_email).limit(1))
+        if existing_customer is None:
+            db.add(
+                Customer(
+                    user_id=user.id,
+                    name=username,
+                    email=fallback_email,
+                    company_id=None,
+                    postal_code=None,
+                    is_active=True,
+                )
+            )
+        else:
+            existing_customer.user_id = user.id
+
     db.commit()
     db.refresh(user)
     return user

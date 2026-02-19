@@ -21,6 +21,7 @@ from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.db.base import Base
+from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
 from app.models import MenuItem, RestaurantSetting, User
@@ -67,6 +68,7 @@ def startup() -> None:
     if not secret_from_env:
         logger.warning("SESSION_SECRET not set; using development fallback secret.")
     Base.metadata.create_all(bind=engine)
+    ensure_sqlite_schema(engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
         ensure_default_admin(session)
@@ -241,6 +243,9 @@ async def admin_users_create(request: Request):
         user = User(username=username.strip(), password_hash=get_password_hash(password), role=clean_role, is_active=True)
         db.add(user)
         db.commit()
+        db.refresh(user)
+        if clean_role == "CUSTOMER":
+            ensure_customer_profile(db, user)
     return RedirectResponse(url="/admin/users", status_code=303)
 
 
