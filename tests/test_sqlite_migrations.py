@@ -266,3 +266,48 @@ def test_ensure_sqlite_schema_adds_postal_code_columns(tmp_path: Path) -> None:
 
     assert "postal_code" in location_columns
     assert "restaurant_postal_codes" in postal_tables
+
+
+def test_ensure_sqlite_schema_makes_customers_company_id_nullable(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_customers_company_not_null.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customers RENAME TO customers_old"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE customers (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NULL,
+                    name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
+                    company_id INTEGER NOT NULL,
+                    postal_code VARCHAR(16) NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO customers (id, user_id, name, email, company_id, postal_code, is_active)
+                SELECT id, user_id, name, email,
+                       CASE WHEN company_id IS NULL THEN 1 ELSE company_id END,
+                       postal_code, is_active
+                FROM customers_old
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE customers_old"))
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        columns = {
+            str(row[1]): int(row[3])
+            for row in connection.execute(text("PRAGMA table_info(customers);"))
+        }
+
+    assert columns["company_id"] == 0

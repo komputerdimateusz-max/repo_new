@@ -68,3 +68,24 @@ def test_debug_auth_endpoint_reports_session_when_debug_enabled(monkeypatch) -> 
     assert payload["user_id"] == 10
     assert payload["role"] == "CUSTOMER"
     assert payload["cookie_seen"] is True
+
+
+def test_login_returns_friendly_error_when_customer_profile_bootstrap_fails(monkeypatch) -> None:
+    dummy_user = SimpleNamespace(id=11, username="broken-user", role="CUSTOMER")
+
+    monkeypatch.setattr("app.main.authenticate_user", lambda db, username, password: dummy_user)
+
+    def _broken_profile(db, user):
+        raise RuntimeError("db write failed")
+
+    monkeypatch.setattr("app.main.ensure_customer_profile", _broken_profile)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/login",
+            data={"username": "broken-user", "password": "secret"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    assert "Could not finish login. Please try again." in response.text

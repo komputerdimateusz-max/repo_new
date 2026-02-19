@@ -1,7 +1,7 @@
 """make customer company nullable
 
 Revision ID: 0002_customer_company_nullable
-Revises: 0001_mvp0_schema
+Revises: 0001_mvp0
 Create Date: 2026-02-19
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0002_customer_company_nullable"
-down_revision = "0001_mvp0_schema"
+down_revision = "0001_mvp0"
 branch_labels = None
 depends_on = None
 

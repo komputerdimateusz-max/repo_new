@@ -70,3 +70,16 @@ def test_admin_settings_requires_session_auth_and_csv_export() -> None:
     export = client.get('/api/v1/admin/orders/today.csv')
     assert export.status_code == 200
     assert export.headers['content-type'].startswith('text/csv')
+
+
+def test_order_requires_company_selection_message() -> None:
+    allow_orders_now()
+    login_customer()
+
+    client.patch('/api/v1/me', json={'name': 'Pilot User', 'postal_code': '66-400', 'company_id': None})
+    menu = client.get('/api/v1/menu/today').json()
+    first_item_id = menu['items'][0]['id']
+    order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+
+    assert order.status_code == 400
+    assert order.json()['detail'] == 'Select company in profile first.'

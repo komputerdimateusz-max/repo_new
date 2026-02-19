@@ -17,10 +17,53 @@ def _sqlite_column_names(connection: Connection, table_name: str) -> set[str]:
     return {str(row["name"]) for row in rows}
 
 
+def _sqlite_table_info(connection: Connection, table_name: str) -> list[dict[str, object]]:
+    """Return raw table info rows for SQLite table."""
+    return [dict(row) for row in connection.execute(text(f"PRAGMA table_info({table_name});")).mappings().all()]
+
+
 def _sqlite_index_names(connection: Connection, table_name: str) -> set[str]:
     """Return index names for a SQLite table using PRAGMA index_list."""
     rows = connection.execute(text(f"PRAGMA index_list({table_name});")).mappings().all()
     return {str(row["name"]) for row in rows}
+
+
+def _ensure_customers_company_nullable(connection: Connection) -> None:
+    """Rebuild customers table when legacy schema enforces NOT NULL on company_id."""
+    customer_info = _sqlite_table_info(connection, "customers")
+    company_info = next((row for row in customer_info if str(row.get("name")) == "company_id"), None)
+    if company_info is None or int(company_info.get("notnull") or 0) == 0:
+        return
+
+    connection.execute(text("ALTER TABLE customers RENAME TO customers_old"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE customers (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NULL,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                company_id INTEGER NULL,
+                postal_code VARCHAR(16) NULL,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                FOREIGN KEY(company_id) REFERENCES companies(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO customers (id, user_id, name, email, company_id, postal_code, is_active)
+            SELECT id, user_id, name, email, company_id, postal_code, is_active
+            FROM customers_old
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE customers_old"))
+    connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_customers_email ON customers(email)"))
 
 
 def _ensure_default_restaurant(connection: Connection) -> int:
@@ -196,6 +239,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             connection.execute(text("UPDATE users SET restaurant_id = NULL WHERE role = 'CUSTOMER'"))
 
         if "customers" in table_names:
+            _ensure_customers_company_nullable(connection)
             customer_columns = _sqlite_column_names(connection, "customers")
             if "user_id" not in customer_columns:
                 connection.execute(text("ALTER TABLE customers ADD COLUMN user_id INTEGER"))

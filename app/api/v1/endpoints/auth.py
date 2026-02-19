@@ -1,5 +1,7 @@
 """Authentication endpoints (API JWT)."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -7,9 +9,11 @@ from app.core.security import create_access_token, get_current_user, get_passwor
 from app.db.session import get_db
 from app.models.user import User, normalize_user_role
 from app.schemas.auth import AuthUserResponse, LoginRequest, RegisterRequest, TokenResponse
+from app.services.account_service import ensure_customer_profile
 from app.services.user_service import create_user, get_user_by_email
 
 router: APIRouter = APIRouter()
+logger = logging.getLogger(__name__)
 ALLOWED_ROLES: set[str] = {"ADMIN", "CUSTOMER", "RESTAURANT"}
 
 
@@ -38,6 +42,15 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     user: User | None = get_user_by_email(db=db, email=payload.email)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    if user.role == "CUSTOMER":
+        try:
+            ensure_customer_profile(db, user)
+        except Exception:
+            logger.exception("[AUTH] Failed to ensure customer profile during API login for user_id=%s", user.id)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to complete login. Please contact support.",
+            )
     return TokenResponse(access_token=create_access_token(data={"sub": str(user.id)}))
 
 
