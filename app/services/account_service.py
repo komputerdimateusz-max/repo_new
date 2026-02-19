@@ -15,11 +15,20 @@ from app.models import Customer, User
 logger = logging.getLogger(__name__)
 
 
-def ensure_default_admin(db: Session) -> None:
-    """Create default admin user for development if none exists."""
-    existing_admin = db.scalar(select(User).where(User.role == "ADMIN").limit(1))
+def ensure_default_admin(db: Session) -> bool:
+    """Ensure default admin user exists and is active.
+
+    Returns:
+        bool: True when user with username ``admin`` existed before this call.
+    """
+    existing_admin = db.scalar(select(User).where(User.username == "admin").limit(1))
     if existing_admin is not None:
-        return
+        if not existing_admin.is_active:
+            existing_admin.is_active = True
+            db.commit()
+            logger.info("[BOOTSTRAP] Admin exists but was inactive; account re-activated.")
+        logger.info("[BOOTSTRAP] Admin exists")
+        return True
 
     admin = User(
         username="admin",
@@ -31,6 +40,7 @@ def ensure_default_admin(db: Session) -> None:
     db.add(admin)
     db.commit()
     logger.warning("[SECURITY] Default admin account created: admin/123. Change default password immediately.")
+    return False
 
 
 def authenticate_user(db: Session, username: str, password: str) -> User | None:

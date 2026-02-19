@@ -70,8 +70,12 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_schema(engine)
     with SessionLocal() as session:
-        ensure_seed_data(session)
-        ensure_default_admin(session)
+        try:
+            ensure_seed_data(session)
+            admin_present = ensure_default_admin(session)
+            logger.info("[BOOTSTRAP] default admin present: %s", "yes" if admin_present else "no")
+        except Exception:
+            logger.exception("[BOOTSTRAP] Seed/bootstrap failed; continuing startup.")
 
 
 def _session_user(request: Request) -> dict[str, str | int] | None:
