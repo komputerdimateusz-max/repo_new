@@ -1,6 +1,6 @@
 <!doctype html><html><body>
 <h1>Create user</h1>
-<p>{{ request.session.get("username", "") }} ({{ request.session.get("role", "") }}) • <a href="/admin">Admin</a></p>
+<p>{{ current_username|default("Guest") }} ({{ current_user_role|default("ADMIN") }}) • <a href="/admin">Admin</a></p>
 <form method="post" action="/admin/users/new">
   <input type="text" name="username" placeholder="username" required />
   <input type="password" name="password" placeholder="password" required />
