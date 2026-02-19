@@ -90,6 +90,7 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
+    print(f"[STARTUP] FastAPI app initialized with {len(app.routes)} routes")
 
 
 def _current_customer(request: Request) -> dict:
@@ -149,7 +150,7 @@ def _require_admin_page_auth(request: Request) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def root(request: Request) -> HTMLResponse:
+def root(request: Request):
     redirect = _require_login(request)
     if redirect:
         return redirect
@@ -170,14 +171,14 @@ def root(request: Request) -> HTMLResponse:
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, message: str | None = None) -> HTMLResponse:
+def login_page(request: Request, message: str | None = None):
     if _current_customer(request).get("customer_id"):
         return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "message": message, "email": ""})
 
 
 @app.post("/login/send", response_class=HTMLResponse)
-async def login_send(request: Request) -> HTMLResponse:
+async def login_send(request: Request):
     data = await _read_login_payload(request)
     clean_email = str(data.get("email", "")).strip().lower()
     if not clean_email:
@@ -193,8 +194,8 @@ async def login_send(request: Request) -> HTMLResponse:
     return login_page(request, message="Code sent (check server logs)")
 
 
-@app.post("/login/verify")
-async def login_verify(request: Request) -> RedirectResponse | HTMLResponse:
+@app.post("/login/verify", response_class=RedirectResponse)
+async def login_verify(request: Request):
     data = await _read_login_payload(request)
     clean_email = str(data.get("email", "")).strip().lower()
     code = str(data.get("code", "")).strip()
@@ -220,15 +221,15 @@ async def login_verify(request: Request) -> RedirectResponse | HTMLResponse:
     return RedirectResponse(url="/", status_code=303)
 
 
-@app.get("/logout")
-def logout(request: Request) -> RedirectResponse:
+@app.get("/logout", response_class=RedirectResponse)
+def logout(request: Request):
     request.session.clear()
     response = RedirectResponse(url="/login", status_code=303)
     return response
 
 
 @app.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request) -> HTMLResponse:
+def profile_page(request: Request):
     redirect = _require_login(request)
     if redirect:
         return redirect
@@ -236,7 +237,7 @@ def profile_page(request: Request) -> HTMLResponse:
 
 
 @app.get("/my-order", response_class=HTMLResponse)
-def my_order_page(request: Request) -> HTMLResponse:
+def my_order_page(request: Request):
     redirect = _require_login(request)
     if redirect:
         return redirect
@@ -244,31 +245,31 @@ def my_order_page(request: Request) -> HTMLResponse:
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
-def admin_settings_page(request: Request) -> HTMLResponse:
+def admin_settings_page(request: Request):
     _require_admin_page_auth(request)
     return templates.TemplateResponse(request, "admin_settings.html", {"request": request})
 
 
 @app.get("/admin/menu", response_class=HTMLResponse)
-def admin_menu_page(request: Request) -> HTMLResponse:
+def admin_menu_page(request: Request):
     _require_admin_page_auth(request)
     return templates.TemplateResponse(request, "admin_menu.html", {"request": request})
 
 
 @app.get("/admin/specials", response_class=HTMLResponse)
-def admin_specials_page(request: Request) -> HTMLResponse:
+def admin_specials_page(request: Request):
     _require_admin_page_auth(request)
     return templates.TemplateResponse(request, "admin_specials.html", {"request": request})
 
 
 @app.get("/admin/orders/today", response_class=HTMLResponse)
-def admin_orders_page(request: Request) -> HTMLResponse:
+def admin_orders_page(request: Request):
     _require_admin_page_auth(request)
     return templates.TemplateResponse(request, "admin_orders_today.html", {"request": request})
 
 
-@app.get("/admin/orders/today.csv")
-def admin_orders_csv_redirect(request: Request) -> RedirectResponse:
+@app.get("/admin/orders/today.csv", response_class=RedirectResponse)
+def admin_orders_csv_redirect(request: Request):
     _require_admin_page_auth(request)
     return RedirectResponse(url="/api/v1/admin/orders/today.csv", status_code=307)
 
@@ -276,8 +277,8 @@ def admin_orders_csv_redirect(request: Request) -> RedirectResponse:
 @app.get("/order", include_in_schema=False)
 @app.get("/place-order", include_in_schema=False)
 @app.get("/customer", include_in_schema=False)
-@app.get("/customer/order", include_in_schema=False)
-def redirect_legacy_order_routes() -> RedirectResponse:
+@app.get("/customer/order", include_in_schema=False, response_class=RedirectResponse)
+def redirect_legacy_order_routes():
     return RedirectResponse(url="/", status_code=307)
 
 
