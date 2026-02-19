@@ -1,18 +1,30 @@
 <!doctype html><html><body>
 <h1>Menu items</h1>
 <p>{{ current_username|default("Guest") }} ({{ current_user_role|default("RESTAURANT") }}) • <a href="/restaurant">Panel restauracji</a></p>
-<a href="/restaurant/menu/new">New item</a>
+
+<h2>Add new item</h2>
+<form method="post" action="/restaurant/menu">
+  <input type="text" name="name" placeholder="name" required />
+  <textarea name="description" placeholder="description"></textarea>
+  <input type="number" name="price" step="0.01" placeholder="price" required />
+  <select name="category">
+    {% for category in categories %}
+    <option value="{{ category }}">{{ category }}</option>
+    {% endfor %}
+  </select>
+  <label><input type="checkbox" name="is_active" value="true" checked /> Active</label>
+  <button type="submit">Dodaj do menu</button>
+</form>
+
 <table border="1" cellpadding="6">
-<tr><th>Name</th><th>Category</th><th>Price</th><th>Standard</th><th>Active</th><th>Actions</th></tr>
+<tr><th>ID</th><th>Name</th><th>Price</th><th>Category</th><th>Active</th></tr>
 {% for item in items %}
 <tr>
-  <td>{{ item.name }}</td><td>{{ item.category }}</td><td>{{ item.price }}</td><td>{{ item.is_standard }}</td><td>{{ item.is_active }}</td>
-  <td>
-    <a href="/restaurant/menu/{{ item.id }}/edit">Edit</a>
-    <form method="post" action="/restaurant/menu/{{ item.id }}/toggle-active" style="display:inline;">
-      <button type="submit">Toggle active</button>
-    </form>
-  </td>
+  <td>{{ item.id }}</td>
+  <td>{{ item.name }}</td>
+  <td>{{ item.price }}</td>
+  <td>{{ item.category }}</td>
+  <td>{{ item.is_active }}</td>
 </tr>
 {% endfor %}
 </table>

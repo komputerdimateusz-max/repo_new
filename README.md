@@ -53,3 +53,10 @@ On first startup, if no admin exists, the app creates:
 3. Logout, log in as `restaurant1`, open `/restaurant/menu`, add a new menu item.
 4. Logout, log in as `customer1`, open `/` and verify the newly added item is visible.
 5. Verify customer role is blocked from `/admin` and `/restaurant`.
+
+## Vertical slice smoke test (restaurant -> customer cart)
+1. Login as `RESTAURANT`.
+2. Open `/restaurant/menu` and add item: name `Test dish`, price `10.00`.
+3. Open `/__debug/menu` and confirm `Test dish` exists.
+4. Login as `CUSTOMER`, open `/` and confirm `Test dish` is visible.
+5. Click `Dodaj` and confirm item appears in `Twój koszyk` with updated total.
