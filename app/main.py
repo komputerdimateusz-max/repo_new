@@ -25,6 +25,7 @@ from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
 from app.models import MenuItem, RestaurantSetting, User
+from app.models.user import normalize_user_role
 from app.services.account_service import authenticate_user, ensure_customer_profile, ensure_default_admin
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -237,9 +238,12 @@ async def admin_users_create(request: Request):
     current = _require_role_page(request, {"ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
-    clean_role = role.upper()
+    try:
+        clean_role = normalize_user_role(role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if clean_role not in {"RESTAURANT", "CUSTOMER"}:
-        raise HTTPException(status_code=400, detail="Invalid role")
+        raise HTTPException(status_code=400, detail="Invalid role for admin creation")
     with SessionLocal() as db:
         existing = db.scalar(select(User).where(User.username == username.strip()).limit(1))
         if existing:

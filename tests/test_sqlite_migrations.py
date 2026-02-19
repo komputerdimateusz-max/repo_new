@@ -133,6 +133,32 @@ def test_startup_migration_prevents_order_items_crash(tmp_path: Path, monkeypatc
     assert order_response.status_code == 200
 
 
+def test_ensure_sqlite_schema_normalizes_legacy_lowercase_roles(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_user_roles.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO users (username, password_hash, role, email, is_active, created_at)
+                VALUES
+                    ('legacy-admin', 'hash', 'admin', 'legacy-admin@example.com', 1, CURRENT_TIMESTAMP),
+                    ('legacy-rest', 'hash', 'restaurant', 'legacy-rest@example.com', 1, CURRENT_TIMESTAMP),
+                    ('legacy-customer', 'hash', 'customer', 'legacy-customer@example.com', 1, CURRENT_TIMESTAMP)
+                """
+            )
+        )
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        roles = {
+            str(row[0])
+            for row in connection.execute(text("SELECT role FROM users"))
+        }
+
+    assert roles == {"ADMIN", "RESTAURANT", "CUSTOMER"}
 
 
 def test_ensure_sqlite_schema_adds_customers_user_id_column(tmp_path: Path) -> None:

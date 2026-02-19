@@ -27,7 +27,7 @@ from app.services.menu_service import (
 )
 
 router: APIRouter = APIRouter()
-ALLOWED_MENU_ROLES: set[str] = {"restaurant", "admin"}
+ALLOWED_MENU_ROLES: set[str] = {"RESTAURANT", "ADMIN"}
 
 
 def _require_menu_role(current_user: User) -> None:
@@ -36,7 +36,7 @@ def _require_menu_role(current_user: User) -> None:
 
 
 def _resolve_restaurant_id(db: Session, current_user: User) -> int:
-    if current_user.role == "restaurant":
+    if current_user.role == "RESTAURANT":
         if current_user.restaurant_id is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant user requires restaurant_id")
         return current_user.restaurant_id

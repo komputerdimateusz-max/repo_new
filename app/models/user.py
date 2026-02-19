@@ -8,6 +8,20 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 USER_ROLES = ("ADMIN", "RESTAURANT", "CUSTOMER")
+ROLE_ALIASES: dict[str, str] = {
+    "ADMIN": "ADMIN",
+    "RESTAURANT": "RESTAURANT",
+    "CUSTOMER": "CUSTOMER",
+}
+
+
+def normalize_user_role(role: str) -> str:
+    """Return a canonical role value accepted by the user_role enum."""
+    normalized = ROLE_ALIASES.get(str(role).strip().upper())
+    if normalized is None:
+        allowed_values = ", ".join(USER_ROLES)
+        raise ValueError(f"Invalid role '{role}'. Allowed values: {allowed_values}")
+    return normalized
 
 
 class User(Base):
