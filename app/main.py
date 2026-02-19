@@ -30,7 +30,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Single Restaurant Catering MVP")
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    same_site="lax",
+    https_only=False,
+    max_age=60 * 60 * 24 * 7,
+)
 app.include_router(api_router, prefix="/api/v1")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -55,6 +61,11 @@ ORDER_UI_BUILD_ID = _resolve_build_id()
 
 @app.on_event("startup")
 def startup() -> None:
+    secret_from_env = bool(os.getenv("SESSION_SECRET"))
+    source = "env" if secret_from_env else "fallback"
+    logger.info("Session secret source: %s", source)
+    if not secret_from_env:
+        logger.warning("SESSION_SECRET not set; using development fallback secret.")
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
@@ -70,6 +81,11 @@ def _session_user(request: Request) -> dict[str, str | int] | None:
     return None
 
 
+def _role_landing(role: str | None) -> str:
+    role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
+    return role_redirect.get(str(role), "/")
+
+
 def _require_login(request: Request) -> dict[str, str | int] | RedirectResponse:
     current = _session_user(request)
     if current:
@@ -82,7 +98,7 @@ def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | i
     if isinstance(current, RedirectResponse):
         return current
     if str(current["role"]) not in allowed:
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url=_role_landing(str(current["role"])), status_code=303)
     return current
 
 
@@ -110,8 +126,7 @@ def root(request: Request):
 def login_page(request: Request, error: str | None = None):
     current = _session_user(request)
     if current:
-        role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
-        return RedirectResponse(url=role_redirect.get(str(current["role"]), "/"), status_code=303)
+        return RedirectResponse(url=_role_landing(str(current["role"])), status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": error})
 
 
@@ -136,14 +151,33 @@ async def login_submit(request: Request):
             request.session["customer_id"] = customer.id
             request.session["customer_email"] = customer.email
 
-    role_redirect = {"ADMIN": "/admin", "RESTAURANT": "/restaurant", "CUSTOMER": "/"}
-    return RedirectResponse(url=role_redirect.get(user_role, "/"), status_code=303)
+    return RedirectResponse(url=_role_landing(user_role), status_code=303)
 
 
 @app.post("/logout", response_class=RedirectResponse)
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/logout", response_class=RedirectResponse)
+def logout_get(request: Request):
+    return logout(request)
+
+
+@app.get("/__debug/auth", include_in_schema=False)
+def debug_auth(request: Request):
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
+    session_keys = sorted(list(request.session.keys()))
+    return {
+        "path": str(request.url.path),
+        "session_present": len(session_keys) > 0,
+        "session_keys": session_keys,
+        "user_id": request.session.get("user_id"),
+        "role": request.session.get("role"),
+        "cookie_seen": "session" in request.cookies,
+    }
 
 
 @app.get("/profile", response_class=HTMLResponse)
