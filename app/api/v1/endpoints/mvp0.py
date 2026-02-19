@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import Company, Customer, DailySpecial, MenuItem, Order, OrderItem, RestaurantSetting
+from app.models import Company, Customer, DailySpecial, MenuItem, Order, OrderItem, RestaurantSetting, User
 from app.schemas.mvp import (
     AdminSettingsUpdateRequest,
     CompanyRead,
@@ -59,12 +59,13 @@ def _get_settings(db: Session) -> RestaurantSetting:
 
 
 def _require_customer(request: Request, db: Session) -> Customer:
-    customer_id = request.session.get("customer_id")
-    if customer_id is None:
-        raise HTTPException(status_code=401, detail="Login required")
-    customer = db.get(Customer, int(customer_id))
+    user_id = request.session.get("user_id")
+    role = request.session.get("role")
+    if user_id is None or role != "CUSTOMER":
+        raise HTTPException(status_code=401, detail="Customer login required")
+    customer = db.scalar(select(Customer).where(Customer.user_id == int(user_id)).limit(1))
     if customer is None:
-        raise HTTPException(status_code=401, detail="Session expired")
+        raise HTTPException(status_code=401, detail="Customer profile missing")
     return customer
 
 
@@ -83,18 +84,8 @@ def _parse_basic_auth_header(request: Request) -> tuple[str, str] | None:
 
 
 def _require_admin(request: Request) -> None:
-    credentials = _parse_basic_auth_header(request)
-    admin_user = settings.admin_user
-    admin_pass = settings.admin_pass
-    if not admin_user or not admin_pass:
-        if settings.app_env == "dev":
-            admin_user, admin_pass = "admin", "admin"
-            print("[ADMIN] ADMIN_USER/ADMIN_PASS missing - using dev fallback admin/admin")
-        else:
-            raise HTTPException(status_code=500, detail="Admin credentials are not configured.")
-
-    if credentials != (admin_user, admin_pass):
-        raise HTTPException(status_code=401, detail="Admin authentication required", headers={"WWW-Authenticate": "Basic"})
+    if request.session.get("role") != "ADMIN":
+        raise HTTPException(status_code=401, detail="Admin authentication required")
 
 
 @router.get("/settings", response_model=SettingsResponse)

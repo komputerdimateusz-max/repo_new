@@ -1,0 +1,18 @@
+<!doctype html><html><body>
+<h1>{% if item %}Edit{% else %}Create{% endif %} menu item</h1>
+<form method="post" action="{% if item %}/restaurant/menu/{{ item.id }}{% else %}/restaurant/menu{% endif %}">
+  <input type="text" name="name" placeholder="name" value="{{ item.name if item else '' }}" required />
+  <textarea name="description" placeholder="description">{{ item.description if item else '' }}</textarea>
+  <input type="number" name="price" step="0.01" value="{{ item.price if item else '' }}" required />
+  <select name="category">
+    {% for category in categories %}
+    <option value="{{ category }}" {% if item and item.category == category %}selected{% endif %}>{{ category }}</option>
+    {% endfor %}
+  </select>
+  <label><input type="checkbox" name="is_standard" value="true" {% if not item or item.is_standard %}checked{% endif %}/> Standard</label>
+  <label><input type="checkbox" name="is_active" value="true" {% if not item or item.is_active %}checked{% endif %}/> Active</label>
+  <input type="text" name="image_url" placeholder="image url" value="{{ item.image_url if item and item.image_url else '' }}" />
+  <button type="submit">Save</button>
+</form>
+<a href="/restaurant/menu">Back</a>
+</body></html>

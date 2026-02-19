@@ -1,0 +1,19 @@
+<!doctype html><html><body>
+<h1>Users</h1>
+<a href="/admin/users/new">Create user</a>
+<table border="1" cellpadding="6">
+<tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Change password</th></tr>
+{% for user in users %}
+<tr>
+<td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.is_active }}</td>
+<td>
+  <form method="post" action="/admin/users/{{ user.id }}/password">
+    <input type="password" name="password" placeholder="new password" required />
+    <button type="submit">Update</button>
+  </form>
+</td>
+</tr>
+{% endfor %}
+</table>
+<a href="/admin">Back</a>
+</body></html>
