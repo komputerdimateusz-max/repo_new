@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_current_user, get_password_hash, verify_password
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, normalize_user_role
 from app.schemas.auth import AuthUserResponse, LoginRequest, RegisterRequest, TokenResponse
 from app.services.user_service import create_user, get_user_by_email
 
@@ -15,7 +15,10 @@ ALLOWED_ROLES: set[str] = {"ADMIN", "CUSTOMER", "RESTAURANT"}
 
 @router.post("/register", response_model=AuthUserResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthUserResponse:
-    role = payload.role.upper()
+    try:
+        role = normalize_user_role(payload.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if role not in ALLOWED_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
     if get_user_by_email(db=db, email=payload.email) is not None:

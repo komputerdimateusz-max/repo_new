@@ -39,7 +39,7 @@ def test_register_creates_user(tmp_path: Path, monkeypatch) -> None:
     body = response.json()
     assert body["id"] > 0
     assert body["email"] == "user@example.com"
-    assert body["role"] == "customer"
+    assert body["role"] == "CUSTOMER"
 
     with testing_session_local() as db:
         customer = db.scalar(select(Customer).where(Customer.user_id == int(body["id"])).limit(1))
@@ -105,5 +105,24 @@ def test_me_returns_current_user(tmp_path: Path, monkeypatch) -> None:
     assert me_response.status_code == 200
     me_payload = me_response.json()
     assert me_payload["email"] == "me@example.com"
-    assert me_payload["role"] == "customer"
+    assert me_payload["role"] == "CUSTOMER"
     assert isinstance(me_payload["id"], int)
+
+
+def test_register_rejects_unknown_role(tmp_path: Path, monkeypatch) -> None:
+    """Register should reject roles outside canonical enum values."""
+    engine = _build_test_engine(tmp_path / "test_register_invalid_role.db")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(db_session, "engine", engine)
+    monkeypatch.setattr(db_session, "SessionLocal", testing_session_local)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": "invalid@example.com", "password": "secret123", "role": "manager"},
+        )
+
+    assert response.status_code == 400
+    assert "Invalid role" in response.json()["detail"]

@@ -24,7 +24,7 @@ router: APIRouter = APIRouter()
 
 
 def _require_customer_or_admin(user: User) -> None:
-    if user.role not in {"customer", "admin"}:
+    if user.role not in {"CUSTOMER", "ADMIN"}:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 

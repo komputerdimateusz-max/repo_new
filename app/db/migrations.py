@@ -49,6 +49,27 @@ def _ensure_default_restaurant(connection: Connection) -> int:
     return int(created_id)
 
 
+
+
+def _normalize_legacy_user_roles(connection: Connection) -> None:
+    """Normalize legacy lowercase role values to canonical enum strings."""
+    lower_roles = connection.execute(
+        text(
+            """
+            SELECT COUNT(1)
+            FROM users
+            WHERE role IN ('admin', 'restaurant', 'customer', 'catering', 'employee', 'company', 'user')
+            """
+        )
+    ).scalar_one()
+    if int(lower_roles or 0) == 0:
+        return
+
+    connection.execute(text("UPDATE users SET role = 'ADMIN' WHERE role = 'admin'"))
+    connection.execute(text("UPDATE users SET role = 'RESTAURANT' WHERE role IN ('restaurant', 'catering')"))
+    connection.execute(text("UPDATE users SET role = 'CUSTOMER' WHERE role IN ('customer', 'employee', 'company', 'user')"))
+    connection.execute(text("UPDATE users SET role = 'CUSTOMER' WHERE role NOT IN ('ADMIN', 'CUSTOMER', 'RESTAURANT')"))
+
 def ensure_sqlite_schema(engine: Engine) -> None:
     """Apply lightweight schema updates for legacy SQLite databases."""
     if engine.dialect.name != "sqlite":
@@ -167,14 +188,12 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             user_columns = _sqlite_column_names(connection, "users")
             if "restaurant_id" not in user_columns:
                 connection.execute(text("ALTER TABLE users ADD COLUMN restaurant_id INTEGER"))
-            connection.execute(text("UPDATE users SET role = 'restaurant' WHERE role = 'catering'"))
-            connection.execute(text("UPDATE users SET role = 'customer' WHERE role IN ('employee', 'company', 'user')"))
-            connection.execute(text("UPDATE users SET role = 'customer' WHERE role NOT IN ('admin', 'customer', 'restaurant')"))
+            _normalize_legacy_user_roles(connection)
             connection.execute(
-                text("UPDATE users SET restaurant_id = :restaurant_id WHERE role = 'restaurant' AND restaurant_id IS NULL"),
+                text("UPDATE users SET restaurant_id = :restaurant_id WHERE role = 'RESTAURANT' AND restaurant_id IS NULL"),
                 {"restaurant_id": default_restaurant_id},
             )
-            connection.execute(text("UPDATE users SET restaurant_id = NULL WHERE role = 'customer'"))
+            connection.execute(text("UPDATE users SET restaurant_id = NULL WHERE role = 'CUSTOMER'"))
 
         if "customers" in table_names:
             customer_columns = _sqlite_column_names(connection, "customers")
