@@ -108,14 +108,12 @@ def _role_landing(role: str | None) -> str:
 
 
 def _normalize_role_for_session(db: Session, user: User) -> str:
-    """Ensure persisted user role is canonical and safe for session storage."""
-    normalized_role = str(user.role or "CUSTOMER").strip().upper() or "CUSTOMER"
+    """Normalize persisted user role and reject unknown values."""
+    normalized_role = str(user.role or "").strip().upper()
     if normalized_role not in {"ADMIN", "RESTAURANT", "CUSTOMER"}:
-        normalized_role = "CUSTOMER"
+        raise ValueError("Account role is misconfigured")
     if normalized_role != user.role:
         user.role = normalized_role
-        db.commit()
-        db.refresh(user)
     return normalized_role
 
 
@@ -196,7 +194,12 @@ async def login_submit(request: Request):
         if not user.is_active:
             return login_page(request, error="This account is inactive. Please contact an administrator.")
 
-        user_role = _normalize_role_for_session(db, user)
+        try:
+            user_role = _normalize_role_for_session(db, user)
+        except ValueError:
+            logger.exception("[AUTH] Role misconfigured for user_id=%s", user.id)
+            return login_page(request, error="This account role is misconfigured. Contact administrator.")
+
         user.last_login_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
@@ -271,9 +274,17 @@ def debug_whoami(request: Request):
                     "is_active": db_user.is_active,
                 }
 
+    db_payload = None
+    if db_user_payload is not None:
+        db_payload = {
+            "username": db_user_payload["username"],
+            "role": db_user_payload["role"],
+            "is_active": db_user_payload["is_active"],
+        }
+
     return {
+        "db": db_payload,
         "session": {"user_id": user_id, "username": username, "role": role},
-        "db_user": db_user_payload,
     }
 
 

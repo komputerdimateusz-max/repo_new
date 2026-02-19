@@ -6,10 +6,9 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import Customer, User
 
@@ -22,23 +21,35 @@ def ensure_default_admin(db: Session) -> bool:
     Returns:
         bool: True when user with username ``admin`` existed before this call.
     """
-    existing_admin = db.scalar(select(User).where(User.username == "admin").limit(1))
-    if existing_admin is not None:
-        updates_applied = False
-        if not existing_admin.is_active:
-            existing_admin.is_active = True
-            updates_applied = True
-            logger.info("[BOOTSTRAP] Admin exists but was inactive; account re-activated.")
-        normalized_role = str(existing_admin.role or "CUSTOMER").strip().upper()
-        if settings.debug and existing_admin.username == "admin" and normalized_role != "ADMIN":
-            logger.warning(
-                "[BOOTSTRAP] Dev-only admin role auto-fix applied for username=admin (old=%s, new=ADMIN).",
-                existing_admin.role,
-            )
-            existing_admin.role = "ADMIN"
-            updates_applied = True
+    logger.warning("[BOOTSTRAP] Forced default admin credentials admin/123 (DEV).")
+    row = db.execute(
+        text(
+            """
+            SELECT id, password_hash, role, is_active
+            FROM users
+            WHERE username = :username
+            LIMIT 1
+            """
+        ),
+        {"username": "admin"},
+    ).mappings().first()
 
-        if updates_applied:
+    if row is not None:
+        password_hash = str(row["password_hash"] or "")
+        updates_required = row["role"] != "ADMIN" or not bool(row["is_active"]) or not verify_password("123", password_hash)
+        if updates_required:
+            db.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET role = 'ADMIN',
+                        is_active = 1,
+                        password_hash = :password_hash
+                    WHERE id = :user_id
+                    """
+                ),
+                {"password_hash": get_password_hash("123"), "user_id": row["id"]},
+            )
             db.commit()
         logger.info("[BOOTSTRAP] Admin exists")
         return True
@@ -52,7 +63,6 @@ def ensure_default_admin(db: Session) -> bool:
     )
     db.add(admin)
     db.commit()
-    logger.warning("[SECURITY] Default admin account created: admin/123. Change default password immediately.")
     return False
 
 
