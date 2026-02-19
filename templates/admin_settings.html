@@ -1,0 +1,6 @@
+<!doctype html><html><body><h1>Admin Settings</h1><nav><a href="/admin/menu">Menu</a> | <a href="/admin/specials">Specials</a> | <a href="/admin/orders/today">Today orders</a> | <a href="/admin/logout">Logout</a></nav>
+<form id="f"><input name="cut_off_time"/><input name="delivery_fee"/><input name="delivery_window_start"/><input name="delivery_window_end"/><button>Save</button></form>
+<script>
+async function load(){const s=await fetch('/api/v1/admin/settings').then(r=>r.json());for(const k of ['cut_off_time','delivery_fee','delivery_window_start','delivery_window_end'])document.querySelector(`[name=${k}]`).value=s[k];}
+ document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const p=Object.fromEntries(new FormData(e.target).entries());await fetch('/api/v1/admin/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});alert('saved');});load();
+</script></body></html>
