@@ -47,11 +47,18 @@ VERIFY_RATE_LIMIT: dict[str, list[float]] = {}
 
 
 async def _read_login_payload(request: Request) -> dict:
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        return await request.json()
-    form = await request.form()
-    return {"email": form.get("email", ""), "code": form.get("code", "")}
+    try:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+
+    try:
+        form = await request.form()
+        return {"email": form.get("email", ""), "code": form.get("code", "")}
+    except Exception as exc:
+        raise ValueError("Invalid login payload") from exc
 
 
 def _resolve_build_id() -> str:
@@ -91,6 +98,11 @@ def _route_listing() -> str:
 
 @app.on_event("startup")
 def startup() -> None:
+    try:
+        import multipart  # type: ignore # noqa: F401
+    except ImportError:
+        logger.warning("[STARTUP] 'python-multipart' is not installed. Install it to enable form parsing.")
+
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
@@ -205,6 +217,8 @@ async def login_send(request: Request):
         MAGIC_CODES[clean_email] = {"code": magic_code, "expires_at": time.time() + MAGIC_CODE_TTL_SECONDS}
         logger.warning("[LOGIN] Magic code for %s: %s", clean_email, magic_code)
         return login_page(request, success="Code sent (see server logs).", email=clean_email)
+    except ValueError:
+        return login_page(request, error="Invalid request.")
     except Exception:
         logger.exception("[LOGIN] Failed to send magic code")
         return login_page(request, error="Could not send code. Check server logs.")
