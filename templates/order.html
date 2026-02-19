@@ -42,6 +42,8 @@
     <aside class="cart-panel card-shell" aria-label="Koszyk">
       <h2>Twój koszyk</h2>
       <p data-inline-message hidden></p>
+      <div data-company-required-banner hidden style="background:#fef3f2;color:#b42318;padding:8px;border-radius:8px;">Wybierz firmę w profilu aby zamówić. <a href="/profile">Przejdź do profilu</a></div>
+      <div data-order-confirmation></div>
       <ul class="cart-list" data-cart-list></ul>
 
       <label class="sr-only" for="cart-note">Uwagi do zamówienia</label>
@@ -73,14 +75,12 @@
       </dl>
 
       <button type="button" class="checkout-btn" data-checkout-btn disabled>Zamawiam i płacę</button>
-      <button type="button" class="checkout-btn" data-my-orders-btn>View my today order</button>
+      <a href="/my-order">Moje zamówienie (dziś)</a>
       <div data-my-orders></div>
       <p class="cart-footnote">To zamówienie zostanie zrealizowane dzisiaj.</p>
     </aside>
   </main>
 </div>
 
-<footer class="order-ui-build-badge" aria-label="Order UI build marker">
-  ORDER_UI_BUILD: {{ order_ui_build }}
-</footer>
+{% if debug_ui %}<footer class="order-ui-build-badge" aria-label="Order UI build marker">ORDER_UI_BUILD: {{ order_ui_build }}</footer>{% endif %}
 {% endblock %}

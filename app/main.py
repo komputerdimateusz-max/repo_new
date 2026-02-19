@@ -3,45 +3,51 @@
 import os
 import random
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+import base64
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from jose import JWTError, jwt
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.db.base import Base
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
-from app.models import Company, Customer
+from app.models import Customer
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-CUSTOMER_COOKIE = "customer_session"
-ADMIN_COOKIE = "admin_session"
+MAGIC_CODE_TTL_SECONDS = 10 * 60
+RATE_WINDOW_SECONDS = 10 * 60
 
 app = FastAPI(title="Single Restaurant Catering MVP")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    same_site="lax",
+    https_only=False,
+)
 app.include_router(api_router, prefix="/api/v1")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-MAGIC_CODES: dict[str, str] = {}
+MAGIC_CODES: dict[str, dict[str, float | str]] = {}
+SEND_RATE_LIMIT: dict[str, list[float]] = {}
+VERIFY_RATE_LIMIT: dict[str, list[float]] = {}
 
 
-def create_token(payload: dict) -> str:
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-
-
-def read_token(raw: str | None) -> dict:
-    if not raw:
-        return {}
-    try:
-        return jwt.decode(raw, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-    except JWTError:
-        return {}
+async def _read_login_payload(request: Request) -> dict:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return await request.json()
+    form = await request.form()
+    return {"email": form.get("email", ""), "code": form.get("code", "")}
 
 
 def _resolve_build_id() -> str:
@@ -61,6 +67,7 @@ ORDER_UI_BUILD_ID = _resolve_build_id()
 ORDER_UI_BUILD_TS = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 ORDER_TEMPLATE_NAME = "order.html"
 ORDER_TEMPLATE_PATH = str((BASE_DIR / "templates" / ORDER_TEMPLATE_NAME).resolve())
+
 
 def _order_handler_ref() -> str:
     return f"{root.__module__}:{root.__name__}"
@@ -86,7 +93,10 @@ def startup() -> None:
 
 
 def _current_customer(request: Request) -> dict:
-    return read_token(request.cookies.get(CUSTOMER_COOKIE))
+    return {
+        "customer_id": request.session.get("customer_id"),
+        "customer_email": request.session.get("customer_email"),
+    }
 
 
 def _require_login(request: Request) -> RedirectResponse | None:
@@ -95,12 +105,63 @@ def _require_login(request: Request) -> RedirectResponse | None:
     return RedirectResponse(url="/login", status_code=307)
 
 
+def _trim_window(bucket: dict[str, list[float]], key: str) -> list[float]:
+    now = time.time()
+    entries = [stamp for stamp in bucket.get(key, []) if now - stamp < RATE_WINDOW_SECONDS]
+    bucket[key] = entries
+    return entries
+
+
+def _is_rate_limited(bucket: dict[str, list[float]], key: str, limit: int) -> bool:
+    entries = _trim_window(bucket, key)
+    if len(entries) >= limit:
+        return True
+    entries.append(time.time())
+    bucket[key] = entries
+    return False
+
+def _admin_credentials() -> tuple[str, str]:
+    if settings.admin_user and settings.admin_pass:
+        return settings.admin_user, settings.admin_pass
+    if settings.app_env == "dev":
+        print("[ADMIN] ADMIN_USER/ADMIN_PASS missing - using dev fallback admin/admin")
+        return "admin", "admin"
+    raise HTTPException(status_code=500, detail="Admin credentials are not configured.")
+
+
+def _is_admin_authorized(request: Request) -> bool:
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+    except Exception:
+        return False
+    if ":" not in decoded:
+        return False
+    return tuple(decoded.split(":", 1)) == _admin_credentials()
+
+
+def _require_admin_page_auth(request: Request) -> None:
+    if not _is_admin_authorized(request):
+        raise HTTPException(status_code=401, detail="Admin authentication required", headers={"WWW-Authenticate": "Basic"})
+
+
+
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request) -> HTMLResponse:
     redirect = _require_login(request)
     if redirect:
         return redirect
-    context = {"request": request, "order_ui_build": f"{ORDER_UI_BUILD_ID} {ORDER_UI_BUILD_TS}", "order_ui_git_sha": ORDER_UI_BUILD_ID, "order_ui_template_path": ORDER_TEMPLATE_PATH, "order_ui_template_name": ORDER_TEMPLATE_NAME, "user_email": _current_customer(request).get("customer_email")}
+    context = {
+        "request": request,
+        "order_ui_build": f"{ORDER_UI_BUILD_ID} {ORDER_UI_BUILD_TS}",
+        "order_ui_git_sha": ORDER_UI_BUILD_ID,
+        "order_ui_template_path": ORDER_TEMPLATE_PATH,
+        "order_ui_template_name": ORDER_TEMPLATE_NAME,
+        "user_email": _current_customer(request).get("customer_email"),
+        "debug_ui": settings.debug_ui,
+    }
     response = templates.TemplateResponse(request, ORDER_TEMPLATE_NAME, context)
     response.headers["X-ORDER-UI-TEMPLATE"] = ORDER_TEMPLATE_PATH
     response.headers["X-ORDER-UI-BUILD"] = ORDER_UI_BUILD_ID
@@ -109,52 +170,60 @@ def root(request: Request) -> HTMLResponse:
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request) -> HTMLResponse:
+def login_page(request: Request, message: str | None = None) -> HTMLResponse:
     if _current_customer(request).get("customer_id"):
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"request": request, "message": request.query_params.get("error"), "email": ""})
+    return templates.TemplateResponse(request, "login.html", {"request": request, "message": message, "email": ""})
 
 
-@app.post("/login/send")
-async def login_send(request: Request) -> dict[str, str]:
-    data = await request.json()
+@app.post("/login/send", response_class=HTMLResponse)
+async def login_send(request: Request) -> HTMLResponse:
+    data = await _read_login_payload(request)
     clean_email = str(data.get("email", "")).strip().lower()
     if not clean_email:
-        raise ValueError("email required")
+        return login_page(request, message="Invalid code")
+
+    if _is_rate_limited(SEND_RATE_LIMIT, clean_email, 5):
+        return login_page(request, message="Too many requests. Try again later.")
+
     magic_code = f"{random.randint(0, 999999):06d}"
-    MAGIC_CODES[clean_email] = magic_code
-    print(f"[MVP login] magic code for {clean_email}: {magic_code}")
-    return {"message": "Magic code generated. Check server logs."}
+    MAGIC_CODES[clean_email] = {"code": magic_code, "expires_at": time.time() + MAGIC_CODE_TTL_SECONDS}
+    if settings.app_env == "dev":
+        print(f"[LOGIN] Magic code for {clean_email}: {magic_code}")
+    return login_page(request, message="Code sent (check server logs)")
 
 
 @app.post("/login/verify")
-async def login_verify(request: Request) -> RedirectResponse:
-    data = await request.json()
+async def login_verify(request: Request) -> RedirectResponse | HTMLResponse:
+    data = await _read_login_payload(request)
     clean_email = str(data.get("email", "")).strip().lower()
     code = str(data.get("code", "")).strip()
-    if MAGIC_CODES.get(clean_email) != code:
-        return RedirectResponse(url="/login?error=invalid_code", status_code=303)
+
+    if _is_rate_limited(VERIFY_RATE_LIMIT, clean_email, 10):
+        return login_page(request, message="Too many requests. Try again later.")
+
+    entry = MAGIC_CODES.get(clean_email)
+    if not entry or entry.get("expires_at", 0) < time.time() or entry.get("code") != code:
+        return login_page(request, message="Invalid code")
 
     with SessionLocal() as db:
         customer = db.query(Customer).filter(Customer.email == clean_email).first()
         if customer is None:
-            company = db.query(Company).filter(Company.is_active.is_(True)).order_by(Company.id.asc()).first()
-            if company is None:
-                return RedirectResponse(url="/login?error=no_company", status_code=303)
-            customer = Customer(email=clean_email, name=clean_email.split("@")[0], company_id=company.id, postal_code=None, is_active=True)
+            customer = Customer(email=clean_email, name=clean_email.split("@")[0], company_id=None, postal_code=None, is_active=True)
             db.add(customer)
             db.commit()
             db.refresh(customer)
-    response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie(CUSTOMER_COOKIE, create_token({"customer_id": customer.id, "customer_email": customer.email}), httponly=True, samesite="lax")
+
+    request.session["customer_id"] = customer.id
+    request.session["customer_email"] = customer.email
     MAGIC_CODES.pop(clean_email, None)
-    return response
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/logout")
-def logout() -> RedirectResponse:
+def logout(request: Request) -> RedirectResponse:
+    request.session.clear()
     response = RedirectResponse(url="/login", status_code=303)
-    response.delete_cookie(CUSTOMER_COOKIE)
     return response
 
 
@@ -166,56 +235,42 @@ def profile_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "profile.html", {"request": request, "email": _current_customer(request).get("customer_email")})
 
 
-@app.get("/admin/login", response_class=HTMLResponse)
-def admin_login_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "admin_login.html", {"request": request, "message": request.query_params.get("error")})
-
-
-@app.post("/admin/login")
-async def admin_login(request: Request) -> RedirectResponse:
-    data = await request.json()
-    if data.get("password") != settings.admin_password:
-        return RedirectResponse(url="/admin/login?error=1", status_code=303)
-    response = RedirectResponse(url="/admin/settings", status_code=303)
-    response.set_cookie(ADMIN_COOKIE, create_token({"is_admin": True}), httponly=True, samesite="lax")
-    return response
-
-
-def _is_admin(request: Request) -> bool:
-    return bool(read_token(request.cookies.get(ADMIN_COOKIE)).get("is_admin"))
-
-
-@app.get("/admin/logout")
-def admin_logout() -> RedirectResponse:
-    response = RedirectResponse(url="/admin/login", status_code=303)
-    response.delete_cookie(ADMIN_COOKIE)
-    return response
-
-
-def _admin_page(request: Request, template_name: str) -> HTMLResponse:
-    if not _is_admin(request):
-        return RedirectResponse(url="/admin/login", status_code=303)
-    return templates.TemplateResponse(request, template_name, {"request": request})
+@app.get("/my-order", response_class=HTMLResponse)
+def my_order_page(request: Request) -> HTMLResponse:
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "my_order.html", {"request": request, "user_email": _current_customer(request).get("customer_email")})
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page(request: Request) -> HTMLResponse:
-    return _admin_page(request, "admin_settings.html")
+    _require_admin_page_auth(request)
+    return templates.TemplateResponse(request, "admin_settings.html", {"request": request})
 
 
 @app.get("/admin/menu", response_class=HTMLResponse)
 def admin_menu_page(request: Request) -> HTMLResponse:
-    return _admin_page(request, "admin_menu.html")
+    _require_admin_page_auth(request)
+    return templates.TemplateResponse(request, "admin_menu.html", {"request": request})
 
 
 @app.get("/admin/specials", response_class=HTMLResponse)
 def admin_specials_page(request: Request) -> HTMLResponse:
-    return _admin_page(request, "admin_specials.html")
+    _require_admin_page_auth(request)
+    return templates.TemplateResponse(request, "admin_specials.html", {"request": request})
 
 
 @app.get("/admin/orders/today", response_class=HTMLResponse)
 def admin_orders_page(request: Request) -> HTMLResponse:
-    return _admin_page(request, "admin_orders_today.html")
+    _require_admin_page_auth(request)
+    return templates.TemplateResponse(request, "admin_orders_today.html", {"request": request})
+
+
+@app.get("/admin/orders/today.csv")
+def admin_orders_csv_redirect(request: Request) -> RedirectResponse:
+    _require_admin_page_auth(request)
+    return RedirectResponse(url="/api/v1/admin/orders/today.csv", status_code=307)
 
 
 @app.get("/order", include_in_schema=False)
@@ -233,7 +288,13 @@ def debug_routes() -> PlainTextResponse:
 
 @app.get("/__debug/order-source", include_in_schema=False)
 def debug_order_source() -> dict[str, str]:
-    return {"handler": _order_handler_ref(), "template_path": ORDER_TEMPLATE_PATH, "static_css_href": f"/static/order.css?v={ORDER_UI_BUILD_ID}", "static_js_href": f"/static/order.js?v={ORDER_UI_BUILD_ID}", "git_sha": ORDER_UI_BUILD_ID}
+    return {
+        "handler": _order_handler_ref(),
+        "template_path": ORDER_TEMPLATE_PATH,
+        "static_css_href": f"/static/order.css?v={ORDER_UI_BUILD_ID}",
+        "static_js_href": f"/static/order.js?v={ORDER_UI_BUILD_ID}",
+        "git_sha": ORDER_UI_BUILD_ID,
+    }
 
 
 @app.get("/api")

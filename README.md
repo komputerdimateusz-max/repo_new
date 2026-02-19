@@ -1,6 +1,6 @@
-# Single Restaurant Catering MVP 0.2
+# Single Restaurant Catering MVP 0.3
 
-Single-restaurant lunch ordering with session login, customer profile, and minimal admin tools.
+Single-restaurant lunch ordering with magic-code login, profile enforcement, today-order confirmation, and minimal restaurant admin.
 
 ## Run
 ```bash
@@ -9,54 +9,43 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-## Customer login flow (magic code MVP)
+## Environment variables
+- `SESSION_SECRET` - strong secret for session middleware cookie signing.
+- `ADMIN_USER` / `ADMIN_PASS` - HTTP Basic credentials for `/admin/*` and `/api/v1/admin/*`.
+- `APP_ENV=dev` - in dev, if admin env vars are missing, fallback `admin/admin` is enabled with warning log.
+- `DEBUG_UI=1` - show debug build badge in order UI.
+
+## Login flow (magic code)
 1. Open `http://127.0.0.1:8000/login`.
 2. Enter email and click **Send code**.
-3. Read the code from server logs (`[MVP login] magic code for ...`).
+3. In dev mode read code from server logs:
+   - `[LOGIN] Magic code for <email>: <code>`
 4. Enter code and click **Login**.
-5. You are redirected to `/` and authenticated with session cookie.
+5. Session persists on refresh until `/logout`.
 
-## Customer profile and ordering
-- `/` requires login and shows logged-in email.
-- Company is loaded from `/api/v1/me` and persisted immediately when changed.
-- `/profile` lets customer edit `name`, `postal_code`, and `company`.
-- `POST /api/v1/orders` derives customer/company from session/profile (payload spoofing ignored).
-- Orders are only for **today** and cut-off is enforced server-side.
-- `GET /api/v1/orders/me/today` returns the current user’s today orders.
+Limits:
+- max 5 send-code requests / 10 minutes per email
+- max 10 verify attempts / 10 minutes per email
+- code expires in 10 minutes
 
-## Admin (single password gate)
-- Login page: `/admin/login`
-- Password source: `ADMIN_PASSWORD` env var (default `Admin123!`).
-- Admin pages:
-  - `/admin/settings` (cut-off + delivery settings)
-  - `/admin/menu` (menu CRUD)
-  - `/admin/specials` (daily special CRUD)
-  - `/admin/orders/today` (today table + status updates + CSV export)
-- Admin API endpoints are under `/api/v1/admin/*` and require admin session.
+## Main URLs
+- `/` - customer order page
+- `/login` - magic-code login
+- `/logout` - session clear + redirect login
+- `/profile` - customer profile (name, postal code, company)
+- `/my-order` - latest today order details
+- `/admin/orders/today` - admin today orders table
 
-## API highlights
-- `GET /api/v1/settings`
-- `GET /api/v1/companies`
-- `GET /api/v1/me`
-- `PATCH /api/v1/me`
-- `GET /api/v1/menu/today?category=...`
-- `POST /api/v1/orders`
-- `GET /api/v1/orders/me/today`
-- `GET/PATCH /api/v1/admin/settings`
-- `GET/POST/PATCH/DELETE /api/v1/admin/menu_items`
-- `GET/POST/PATCH/DELETE /api/v1/admin/daily_specials`
-- `GET /api/v1/admin/orders/today`
-- `PATCH /api/v1/admin/orders/{id}`
-- `GET /api/v1/admin/orders/today/export`
+`/docs` remains available for OpenAPI docs.
 
-## Smoke test checklist
-1. Login with magic code and confirm `/` opens.
-2. Change company on `/` and refresh (value persists).
-3. Place order and confirm inline success + order id.
-4. Click **View my today order** and confirm list is shown.
-5. Open `/profile`, edit fields, save, and confirm persistence.
-6. Open `/admin/login`, login with admin password.
-7. Change cut-off or delivery fee in `/admin/settings` and save.
-8. Add/remove a menu item in `/admin/menu`.
-9. Add/remove a daily special in `/admin/specials`.
-10. In `/admin/orders/today`, update status and export CSV.
+## Customer ordering notes
+- Company is required before placing an order.
+- Order page blocks cart actions and checkout until company is selected.
+- Successful order shows confirmation block with totals, delivery window, payment, and items.
+- Local cart is cleared only after successful order response.
+- `GET /api/v1/orders/me/today` returns latest today order or `null`.
+
+## Admin notes
+- Admin uses HTTP Basic Auth (`ADMIN_USER` / `ADMIN_PASS`).
+- Today orders page supports status actions and CSV export.
+- CSV download path: `/admin/orders/today.csv` (API: `/api/v1/admin/orders/today.csv`).

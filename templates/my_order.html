@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pl">
+  <body>
+    <h1>Moje zamówienie (dziś)</h1>
+    <a href="/">Powrót</a>
+    <div id="content">Ładowanie...</div>
+    <script>
+      function money(v) { return `${Number(v).toFixed(2).replace('.', ',')} zł`; }
+      async function load() {
+        const order = await fetch('/api/v1/orders/me/today').then(r => r.json());
+        const el = document.getElementById('content');
+        if (!order) {
+          el.textContent = 'Brak dzisiejszego zamówienia.';
+          return;
+        }
+        el.innerHTML = `<p>#${order.order_id} | ${order.status}</p>
+          <p>Suma: ${money(order.subtotal_amount)} + dostawa ${money(order.delivery_fee)} = <strong>${money(order.total_amount)}</strong></p>
+          <p>Płatność: ${order.payment_method}</p>
+          <ul>${order.items.map(i => `<li>${i.name || i.menu_item_id} x ${i.qty}</li>`).join('')}</ul>`;
+      }
+      load();
+    </script>
+  </body>
+</html>
