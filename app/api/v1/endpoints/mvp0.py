@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 from datetime import date, datetime
 from decimal import Decimal
@@ -11,8 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, joinedload
-
-from jose import JWTError, jwt
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -59,17 +58,8 @@ def _get_settings(db: Session) -> RestaurantSetting:
     return app_settings
 
 
-def _decode_cookie_token(raw: str | None) -> dict:
-    if not raw:
-        return {}
-    try:
-        return jwt.decode(raw, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-    except JWTError:
-        return {}
-
-
 def _require_customer(request: Request, db: Session) -> Customer:
-    customer_id = _decode_cookie_token(request.cookies.get("customer_session")).get("customer_id")
+    customer_id = request.session.get("customer_id")
     if customer_id is None:
         raise HTTPException(status_code=401, detail="Login required")
     customer = db.get(Customer, int(customer_id))
@@ -78,9 +68,33 @@ def _require_customer(request: Request, db: Session) -> Customer:
     return customer
 
 
+def _parse_basic_auth_header(request: Request) -> tuple[str, str] | None:
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+    except Exception:
+        return None
+    if ":" not in decoded:
+        return None
+    username, password = decoded.split(":", 1)
+    return username, password
+
+
 def _require_admin(request: Request) -> None:
-    if not _decode_cookie_token(request.cookies.get("admin_session")).get("is_admin"):
-        raise HTTPException(status_code=401, detail="Admin authentication required")
+    credentials = _parse_basic_auth_header(request)
+    admin_user = settings.admin_user
+    admin_pass = settings.admin_pass
+    if not admin_user or not admin_pass:
+        if settings.app_env == "dev":
+            admin_user, admin_pass = "admin", "admin"
+            print("[ADMIN] ADMIN_USER/ADMIN_PASS missing - using dev fallback admin/admin")
+        else:
+            raise HTTPException(status_code=500, detail="Admin credentials are not configured.")
+
+    if credentials != (admin_user, admin_pass):
+        raise HTTPException(status_code=401, detail="Admin authentication required", headers={"WWW-Authenticate": "Basic"})
 
 
 @router.get("/settings", response_model=SettingsResponse)
@@ -115,9 +129,10 @@ def get_me(request: Request, db: Session = Depends(get_db)) -> MeResponse:
 @router.patch("/me", response_model=MeResponse)
 def patch_me(payload: MeUpdateRequest, request: Request, db: Session = Depends(get_db)) -> MeResponse:
     customer = _require_customer(request, db)
-    company = db.get(Company, payload.company_id)
-    if company is None or not company.is_active:
-        raise HTTPException(status_code=404, detail="Company not found.")
+    if payload.company_id is not None:
+        company = db.get(Company, payload.company_id)
+        if company is None or not company.is_active:
+            raise HTTPException(status_code=404, detail="Company not found.")
     customer.company_id = payload.company_id
     customer.name = payload.name.strip()
     customer.postal_code = payload.postal_code
@@ -192,6 +207,8 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         raise HTTPException(status_code=403, detail="Orders for today are closed.")
 
     customer = _require_customer(request, db)
+    if customer.company_id is None:
+        raise HTTPException(status_code=422, detail="Company selection is required before ordering.")
     company = db.get(Company, customer.company_id)
     if company is None or not company.is_active:
         raise HTTPException(status_code=422, detail="Customer profile company is invalid.")
@@ -229,37 +246,54 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     return OrderCreateResponse(
         order_id=order.id,
         status=order.status,
+        subtotal_amount=order.subtotal_amount,
+        delivery_fee=order.delivery_fee,
         total_amount=order.total_amount,
+        delivery_window_start=app_settings.delivery_window_start,
+        delivery_window_end=app_settings.delivery_window_end,
+        payment_method=order.payment_method,
         created_at=order.created_at,
+        items=[OrderTodayItemRead(menu_item_id=i.menu_item_id, qty=i.qty, price_snapshot=i.price_snapshot) for i in order.items],
     )
 
 
-@router.get("/orders/me/today", response_model=list[OrderTodayRead])
-def list_my_today_orders(request: Request, db: Session = Depends(get_db)) -> list[OrderTodayRead]:
+@router.get("/orders/me/today", response_model=OrderTodayRead | None)
+def my_today_latest_order(request: Request, db: Session = Depends(get_db)) -> OrderTodayRead | None:
     customer = _require_customer(request, db)
     today = date.today()
     orders = db.execute(
         select(Order)
-        .options(joinedload(Order.items), joinedload(Order.customer))
+        .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
         .where(Order.customer_id == customer.id)
         .where(Order.created_at >= datetime.combine(today, datetime.min.time()))
         .order_by(Order.created_at.desc())
     ).unique().scalars().all()
-    return [_serialize_order(order) for order in orders if order.created_at.date() == today]
+    today_orders = [order for order in orders if order.created_at.date() == today]
+    if not today_orders:
+        return None
+    return _serialize_order(today_orders[0])
 
 
 def _serialize_order(order: Order) -> OrderTodayRead:
     return OrderTodayRead(
         order_id=order.id,
         company_id=order.company_id,
+        company_name=order.company.name if order.company else None,
         customer_email=order.customer.email,
         status=order.status,
         created_at=order.created_at,
+        subtotal_amount=order.subtotal_amount,
+        delivery_fee=order.delivery_fee,
         total_amount=order.total_amount,
         payment_method=order.payment_method,
         notes=order.notes,
         items=[
-            OrderTodayItemRead(menu_item_id=item.menu_item_id, qty=item.qty, price_snapshot=item.price_snapshot)
+            OrderTodayItemRead(
+                menu_item_id=item.menu_item_id,
+                qty=item.qty,
+                price_snapshot=item.price_snapshot,
+                name=item.menu_item.name if item.menu_item else None,
+            )
             for item in order.items
         ],
     )
@@ -403,7 +437,7 @@ def admin_today_orders(request: Request, db: Session = Depends(get_db)) -> list[
     today = date.today()
     orders = db.execute(
         select(Order)
-        .options(joinedload(Order.items), joinedload(Order.customer))
+        .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
         .where(Order.created_at >= datetime.combine(today, datetime.min.time()))
         .order_by(Order.created_at.desc())
     ).unique().scalars().all()
@@ -428,24 +462,26 @@ def admin_update_order_status(
     return {"ok": True}
 
 
-@router.get("/admin/orders/today/export")
-def admin_today_orders_export(request: Request, db: Session = Depends(get_db)) -> Response:
+@router.get("/admin/orders/today.csv")
+def admin_today_orders_csv(request: Request, db: Session = Depends(get_db)) -> Response:
     _require_admin(request)
     orders = admin_today_orders(request, db)
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["order_id", "time", "company_id", "customer_email", "items", "notes", "payment", "total", "status"])
+    writer.writerow(["order_id", "time", "company", "customer_email", "items", "notes", "payment", "subtotal", "delivery_fee", "total", "status"])
     for order in orders:
-        item_summary = "; ".join(f"{item.menu_item_id}x{item.qty}" for item in order.items)
+        item_summary = "; ".join(f"{item.name or item.menu_item_id} x{item.qty}" for item in order.items)
         writer.writerow(
             [
                 order.order_id,
                 order.created_at.isoformat(),
-                order.company_id,
+                order.company_name or order.company_id,
                 order.customer_email,
                 item_summary,
                 order.notes or "",
                 order.payment_method,
+                str(order.subtotal_amount),
+                str(order.delivery_fee),
                 str(order.total_amount),
                 order.status,
             ]
@@ -455,3 +491,8 @@ def admin_today_orders_export(request: Request, db: Session = Depends(get_db)) -
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="orders-today.csv"'},
     )
+
+
+@router.get("/admin/orders/today/export")
+def admin_today_orders_export_legacy(request: Request, db: Session = Depends(get_db)) -> Response:
+    return admin_today_orders_csv(request, db)

@@ -1,3 +1,5 @@
+import base64
+
 from fastapi.testclient import TestClient
 
 from app.main import MAGIC_CODES, app, startup
@@ -17,9 +19,14 @@ def allow_orders_now() -> None:
 
 def login(email: str = "pilot@example.com") -> None:
     client.post('/login/send', json={'email': email})
-    code = MAGIC_CODES[email]
+    code = MAGIC_CODES[email]["code"]
     response = client.post('/login/verify', json={'email': email, 'code': code}, follow_redirects=False)
     assert response.status_code == 303
+
+
+def admin_headers() -> dict[str, str]:
+    token = base64.b64encode(b"admin:admin").decode("utf-8")
+    return {"Authorization": f"Basic {token}"}
 
 
 def test_root_requires_login() -> None:
@@ -34,8 +41,9 @@ def test_me_update_and_order_flow() -> None:
     login()
     me = client.get('/api/v1/me')
     assert me.status_code == 200
-    company_id = me.json()['company_id']
 
+    companies = client.get('/api/v1/companies').json()
+    company_id = companies[0]['id']
     updated = client.patch('/api/v1/me', json={'name': 'Pilot User', 'postal_code': '66-400', 'company_id': company_id})
     assert updated.status_code == 200
     assert updated.json()['name'] == 'Pilot User'
@@ -45,21 +53,18 @@ def test_me_update_and_order_flow() -> None:
     order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
     assert order.status_code == 200
 
-    my_orders = client.get('/api/v1/orders/me/today')
-    assert my_orders.status_code == 200
-    assert len(my_orders.json()) >= 1
+    my_order = client.get('/api/v1/orders/me/today')
+    assert my_order.status_code == 200
+    assert my_order.json()['order_id'] >= 1
 
 
-def test_admin_settings_requires_password_and_csv_export() -> None:
+def test_admin_settings_requires_basic_auth_and_csv_export() -> None:
     noauth = client.get('/api/v1/admin/settings')
     assert noauth.status_code == 401
 
-    login_page = client.post('/admin/login', json={'password': 'Admin123!'}, follow_redirects=False)
-    assert login_page.status_code == 303
-
-    settings_response = client.get('/api/v1/admin/settings')
+    settings_response = client.get('/api/v1/admin/settings', headers=admin_headers())
     assert settings_response.status_code == 200
 
-    export = client.get('/api/v1/admin/orders/today/export')
+    export = client.get('/api/v1/admin/orders/today.csv', headers=admin_headers())
     assert export.status_code == 200
     assert export.headers['content-type'].startswith('text/csv')

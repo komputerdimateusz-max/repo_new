@@ -30,6 +30,7 @@ class Order(Base):
     payment_method: Mapped[str] = mapped_column(String(16), nullable=False)
 
     customer: Mapped["Customer"] = relationship(back_populates="orders")
+    company: Mapped["Company"] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
 
 
@@ -45,3 +46,4 @@ class OrderItem(Base):
     price_snapshot: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
     order: Mapped[Order] = relationship(back_populates="items")
+    menu_item: Mapped["MenuItem"] = relationship(back_populates="order_items")

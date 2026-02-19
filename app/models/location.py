@@ -16,3 +16,4 @@ class Company(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     customers: Mapped[list["Customer"]] = relationship(back_populates="company")
+    orders: Mapped[list["Order"]] = relationship(back_populates="company")

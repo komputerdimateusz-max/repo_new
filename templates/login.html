@@ -1,14 +1,20 @@
-<!doctype html><html><body>
-<h1>Login</h1>
-{% if message %}<p>{{ message }}</p>{% endif %}
-<input type="email" id="email" placeholder="email" required />
-<input type="text" id="code" placeholder="magic code" />
-<button id="send">Send code</button>
-<button id="login">Login</button>
-<p id="msg"></p>
-<script>
-const email=()=>document.getElementById('email').value;
-document.getElementById('send').onclick=async()=>{await fetch('/login/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email()})});document.getElementById('msg').textContent='Code sent (see server logs).';};
-document.getElementById('login').onclick=async()=>{const r=await fetch('/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email(),code:document.getElementById('code').value})});if(r.redirected)window.location=r.url;};
-</script>
-</body></html>
+<!doctype html>
+<html lang="pl">
+  <body>
+    <h1>Login</h1>
+    <form method="post" action="/login/send" style="margin-bottom:12px;">
+      <input type="email" name="email" id="email" placeholder="email" required />
+      <button type="submit">Send code</button>
+    </form>
+
+    <form method="post" action="/login/verify">
+      <input type="email" name="email" placeholder="email" required />
+      <input type="text" name="code" id="code" placeholder="magic code" required />
+      <button type="submit">Login</button>
+    </form>
+
+    {% if message %}
+    <p style="color:{% if message == 'Invalid code' %}#b42318{% else %}#333{% endif %};">{{ message }}</p>
+    {% endif %}
+  </body>
+</html>

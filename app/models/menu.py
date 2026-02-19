@@ -24,6 +24,7 @@ class MenuItem(Base):
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     specials: Mapped[list["DailySpecial"]] = relationship(back_populates="menu_item")
+    order_items: Mapped[list["OrderItem"]] = relationship(back_populates="menu_item")
 
 
 class DailySpecial(Base):

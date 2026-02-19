@@ -22,12 +22,12 @@ class CompanyRead(BaseModel):
 class MeResponse(BaseModel):
     email: str
     name: str
-    company_id: int
+    company_id: int | None
     postal_code: str | None
 
 
 class MeUpdateRequest(BaseModel):
-    company_id: int
+    company_id: int | None
     postal_code: str | None = None
     name: str = Field(min_length=1)
 
@@ -64,22 +64,32 @@ class OrderCreateRequest(BaseModel):
 class OrderCreateResponse(BaseModel):
     order_id: int
     status: str
+    subtotal_amount: Decimal
+    delivery_fee: Decimal
     total_amount: Decimal
+    delivery_window_start: str
+    delivery_window_end: str
+    payment_method: str
     created_at: datetime
+    items: list["OrderTodayItemRead"]
 
 
 class OrderTodayItemRead(BaseModel):
     menu_item_id: int
     qty: int
     price_snapshot: Decimal
+    name: str | None = None
 
 
 class OrderTodayRead(BaseModel):
     order_id: int
     company_id: int
+    company_name: str | None = None
     customer_email: str
     status: str
     created_at: datetime
+    subtotal_amount: Decimal
+    delivery_fee: Decimal
     total_amount: Decimal
     payment_method: str
     notes: str | None
