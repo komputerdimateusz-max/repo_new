@@ -4,6 +4,7 @@ import os
 import random
 import subprocess
 import time
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +27,9 @@ from app.models import Customer
 BASE_DIR = Path(__file__).resolve().parent.parent
 MAGIC_CODE_TTL_SECONDS = 10 * 60
 RATE_WINDOW_SECONDS = 10 * 60
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Single Restaurant Catering MVP")
 app.add_middleware(
@@ -90,7 +94,7 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         ensure_seed_data(session)
-    print(f"[STARTUP] FastAPI app initialized with {len(app.routes)} routes")
+    logger.info("[STARTUP] FastAPI app initialized with %s routes", len(app.routes))
 
 
 def _current_customer(request: Request) -> dict:
@@ -120,6 +124,10 @@ def _is_rate_limited(bucket: dict[str, list[float]], key: str, limit: int) -> bo
     entries.append(time.time())
     bucket[key] = entries
     return False
+
+
+def _is_debug_mode() -> bool:
+    return os.getenv("DEBUG", "false").strip().lower() == "true"
 
 def _admin_credentials() -> tuple[str, str]:
     if settings.admin_user and settings.admin_pass:
@@ -171,27 +179,35 @@ def root(request: Request):
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, message: str | None = None):
+def login_page(request: Request, error: str | None = None, success: str | None = None, email: str = ""):
     if _current_customer(request).get("customer_id"):
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"request": request, "message": message, "email": ""})
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"request": request, "error": error, "success": success, "email": email},
+    )
 
 
 @app.post("/login/send", response_class=HTMLResponse)
 async def login_send(request: Request):
-    data = await _read_login_payload(request)
-    clean_email = str(data.get("email", "")).strip().lower()
-    if not clean_email:
-        return login_page(request, message="Invalid code")
+    try:
+        data = await _read_login_payload(request)
+        clean_email = str(data.get("email", "")).strip().lower()
+        if not clean_email or "@" not in clean_email:
+            return login_page(request, error="Invalid email", email=clean_email)
 
-    if _is_rate_limited(SEND_RATE_LIMIT, clean_email, 5):
-        return login_page(request, message="Too many requests. Try again later.")
+        if _is_rate_limited(SEND_RATE_LIMIT, clean_email, 5):
+            logger.info("[LOGIN] rate_limited send email=%s", clean_email)
+            return login_page(request, error="Too many requests. Try again later.", email=clean_email)
 
-    magic_code = f"{random.randint(0, 999999):06d}"
-    MAGIC_CODES[clean_email] = {"code": magic_code, "expires_at": time.time() + MAGIC_CODE_TTL_SECONDS}
-    if settings.app_env == "dev":
-        print(f"[LOGIN] Magic code for {clean_email}: {magic_code}")
-    return login_page(request, message="Code sent (check server logs)")
+        magic_code = f"{random.randint(0, 999999):06d}"
+        MAGIC_CODES[clean_email] = {"code": magic_code, "expires_at": time.time() + MAGIC_CODE_TTL_SECONDS}
+        logger.warning("[LOGIN] Magic code for %s: %s", clean_email, magic_code)
+        return login_page(request, success="Code sent (see server logs).", email=clean_email)
+    except Exception:
+        logger.exception("[LOGIN] Failed to send magic code")
+        return login_page(request, error="Could not send code. Check server logs.")
 
 
 @app.post("/login/verify", response_class=RedirectResponse)
@@ -201,11 +217,12 @@ async def login_verify(request: Request):
     code = str(data.get("code", "")).strip()
 
     if _is_rate_limited(VERIFY_RATE_LIMIT, clean_email, 10):
-        return login_page(request, message="Too many requests. Try again later.")
+        logger.info("[LOGIN] rate_limited verify email=%s", clean_email)
+        return login_page(request, error="Too many requests. Try again later.", email=clean_email)
 
     entry = MAGIC_CODES.get(clean_email)
     if not entry or entry.get("expires_at", 0) < time.time() or entry.get("code") != code:
-        return login_page(request, message="Invalid code")
+        return login_page(request, error="Invalid code", email=clean_email)
 
     with SessionLocal() as db:
         customer = db.query(Customer).filter(Customer.email == clean_email).first()
@@ -226,6 +243,17 @@ def logout(request: Request):
     request.session.clear()
     response = RedirectResponse(url="/login", status_code=303)
     return response
+
+
+@app.get("/__debug/last_login_code")
+def debug_last_login_code(email: str):
+    if not _is_debug_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+    clean_email = email.strip().lower()
+    entry = MAGIC_CODES.get(clean_email)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Code not found")
+    return {"email": clean_email, "code": entry.get("code"), "expires_at": entry.get("expires_at")}
 
 
 @app.get("/profile", response_class=HTMLResponse)
