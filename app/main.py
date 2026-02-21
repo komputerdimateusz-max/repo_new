@@ -565,6 +565,7 @@ async def restaurant_menu_update(request: Request, item_id: int):
     return RedirectResponse(url="/restaurant/menu", status_code=303)
 
 
+@app.post("/restaurant/menu/{item_id}/toggle", response_class=RedirectResponse)
 @app.post("/restaurant/menu/{item_id}/toggle-active", response_class=RedirectResponse)
 def restaurant_menu_toggle_active(request: Request, item_id: int):
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
