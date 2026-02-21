@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, quote_plus
 from pathlib import Path
@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.api import api_router
@@ -28,7 +28,8 @@ from app.db.base import Base
 from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
-from app.models import Company, MenuItem, RestaurantSetting, User
+from app.models import Company, MenuItem, Order, RestaurantSetting, User
+from app.models.user import Customer
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
 
@@ -805,6 +806,78 @@ async def restaurant_settings_save(request: Request):
     return RedirectResponse(url="/restaurant/settings", status_code=303)
 
 
+@app.get("/restaurant/orders/today", response_class=HTMLResponse)
+def restaurant_orders_today_page(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    today = date.today()
+
+    def _order_local_date(order: Order) -> date:
+        created = order.created_at
+        if created.tzinfo is not None:
+            return created.astimezone().date()
+        return created.date()
+
+    with SessionLocal() as db:
+        orders = db.scalars(
+            select(Order)
+            .options(
+                joinedload(Order.items),
+                joinedload(Order.customer).joinedload(Customer.user),
+                joinedload(Order.company),
+            )
+            .order_by(Order.created_at.desc())
+        ).unique().all()
+
+    today_orders = [order for order in orders if _order_local_date(order) == today]
+
+    summary: dict[str, int] = {}
+    serialized_orders: list[dict] = []
+
+    for order in today_orders:
+        company_name = "Brak firmy"
+        if order.company is not None and order.company.name:
+            company_name = order.company.name
+        elif order.customer and order.customer.company and order.customer.company.name:
+            company_name = order.customer.company.name
+
+        customer_identifier = order.customer.email
+        if order.customer and order.customer.user and order.customer.user.username:
+            customer_identifier = order.customer.user.username
+
+        lines = []
+        for item in order.items:
+            name = item.name or "Pozycja"
+            summary[name] = summary.get(name, 0) + item.qty
+            lines.append({
+                "name": name,
+                "qty": item.qty,
+                "unit_price": item.unit_price,
+            })
+
+        serialized_orders.append(
+            {
+                "id": order.id,
+                "time": order.created_at.astimezone().strftime("%H:%M") if order.created_at.tzinfo else order.created_at.strftime("%H:%M"),
+                "company_name": company_name,
+                "customer_identifier": customer_identifier,
+                "notes": order.notes,
+                "cutlery": order.cutlery,
+                "cutlery_price": order.cutlery_price,
+                "order_lines": lines,
+                "total_amount": order.total_amount,
+            }
+        )
+
+    summary_rows = [{"item": name, "qty": qty} for name, qty in sorted(summary.items(), key=lambda x: x[0].lower())]
+
+    return render_template(
+        request,
+        "restaurant_orders_today.html",
+        {"summary_rows": summary_rows, "orders": serialized_orders},
+    )
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)

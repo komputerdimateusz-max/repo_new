@@ -407,6 +407,23 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             order_items_columns = _sqlite_column_names(connection, "order_items")
             if "catalog_item_id" not in order_items_columns:
                 connection.execute(text("ALTER TABLE order_items ADD COLUMN catalog_item_id INTEGER"))
+            if "name" not in order_items_columns:
+                connection.execute(text("ALTER TABLE order_items ADD COLUMN name VARCHAR(255)"))
+                connection.execute(
+                    text(
+                        """
+                        UPDATE order_items
+                        SET name = COALESCE(
+                            (SELECT menu_items.name FROM menu_items WHERE menu_items.id = order_items.menu_item_id),
+                            'Pozycja'
+                        )
+                        WHERE name IS NULL
+                        """
+                    )
+                )
+            if "unit_price" not in order_items_columns:
+                connection.execute(text("ALTER TABLE order_items ADD COLUMN unit_price NUMERIC(10, 2)"))
+                connection.execute(text("UPDATE order_items SET unit_price = COALESCE(price_snapshot, 0) WHERE unit_price IS NULL"))
 
         if "restaurant_settings" in table_names:
             settings_columns = _sqlite_column_names(connection, "restaurant_settings")
