@@ -43,6 +43,13 @@ On first startup, if no admin exists, the app creates:
 4. Logout and login as `restauracja / test123`.
 5. Confirm you land on `/restaurant`.
 
+## Manual smoke test: admin role update
+1. Login as `admin / 123`.
+2. Open `/admin/users/<id>` for any existing user.
+3. Change role to `RESTAURANT`.
+4. Click save.
+5. Confirm the page reloads without Internal Server Error and the role is updated.
+
 ## Main URLs
 - `/` - customer order page
 - `/login` - username/password login

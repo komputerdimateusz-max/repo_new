@@ -7,7 +7,7 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from decimal import Decimal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote_plus
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,6 +29,7 @@ from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
 from app.models import MenuItem, RestaurantSetting, User
+from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -375,8 +376,9 @@ async def admin_users_create(request: Request):
         return render_template(request, "admin_users_new.html", {"error": "Password must be at least 4 characters.", "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
     try:
         clean_role = normalize_user_role(role)
-    except ValueError as exc:
-        return render_template(request, "admin_users_new.html", {"error": str(exc), "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
+    except (ValueError, HTTPException) as exc:
+        message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        return render_template(request, "admin_users_new.html", {"error": message, "form": {"username": username, "role": role or "RESTAURANT", "is_active": is_active}})
     with SessionLocal() as db:
         existing = db.scalar(select(User).where(User.username == username).limit(1))
         if existing:
@@ -420,8 +422,9 @@ async def admin_user_role(request: Request, user_id: int):
     role = form.get("role", "")
     try:
         clean_role = normalize_user_role(role)
-    except ValueError as exc:
-        return RedirectResponse(url=f"/admin/users/{user_id}?message={str(exc).replace(' ', '+')}", status_code=303)
+    except (ValueError, HTTPException) as exc:
+        message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        return RedirectResponse(url=f"/admin/users/{user_id}?message={quote_plus(message)}", status_code=303)
     with SessionLocal() as db:
         user = db.get(User, user_id)
         if user is None:
