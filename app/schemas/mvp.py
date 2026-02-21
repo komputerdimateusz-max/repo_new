@@ -81,7 +81,7 @@ class OrderCreateResponse(BaseModel):
 
 
 class OrderTodayItemRead(BaseModel):
-    menu_item_id: int
+    menu_item_id: int | None
     qty: int
     price_snapshot: Decimal
     name: str | None = None

@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>Zamówienia na dziś</h1>
+    <p><a href="/restaurant">Powrót do panelu restauracji</a></p>
+
+    {% if not orders %}
+      <p>Brak zamówień na dziś.</p>
+    {% else %}
+      <h2>Podsumowanie (łącznie)</h2>
+      <table border="1" cellpadding="6" cellspacing="0">
+        <thead>
+          <tr><th>Item</th><th>Ilość</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary_rows %}
+            <tr>
+              <td>{{ row.item }}</td>
+              <td>{{ row.qty }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h2>Lista zamówień</h2>
+      {% for order in orders %}
+        <section style="border:1px solid #ccc; padding:10px; margin:10px 0;">
+          <div><strong>#{{ order.id }} • {{ order.time }} • Firma: {{ order.company_name }} • Sztućce:
+            {% if order.cutlery %}Tak (+{{ "%.2f"|format(order.cutlery_price) }} zł){% else %}Nie{% endif %}
+          </strong></div>
+          <div>Klient: {{ order.customer_identifier }}</div>
+          <ul>
+            {% for item in order.order_lines %}
+              <li>{{ item.name }} x {{ item.qty }} ({{ "%.2f"|format(item.unit_price) }} zł)</li>
+            {% endfor %}
+          </ul>
+          <div style="max-width: 800px; white-space: pre-wrap; overflow-wrap: anywhere;">
+            <strong>Uwagi:</strong> {{ order.notes if order.notes else '-' }}
+          </div>
+          <div><strong>Razem: {{ "%.2f"|format(order.total_amount) }} zł</strong></div>
+        </section>
+      {% endfor %}
+    {% endif %}
+  </body>
+</html>

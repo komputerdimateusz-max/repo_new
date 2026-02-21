@@ -217,7 +217,15 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         if item is None or not item.is_active:
             raise HTTPException(status_code=404, detail=f"Menu item {line.menu_item_id} not available")
         subtotal += item.price * line.qty
-        order_items.append(OrderItem(menu_item_id=item.id, qty=line.qty, price_snapshot=item.price))
+        order_items.append(
+            OrderItem(
+                menu_item_id=item.id,
+                name=item.name,
+                unit_price=item.price,
+                qty=line.qty,
+                price_snapshot=item.price,
+            )
+        )
 
     cutlery_price = app_settings.cutlery_price
     extras_total = cutlery_price if payload.cutlery else Decimal("0.00")
@@ -253,7 +261,10 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         delivery_window_end=app_settings.delivery_window_end,
         payment_method=order.payment_method,
         created_at=order.created_at,
-        items=[OrderTodayItemRead(menu_item_id=i.menu_item_id, qty=i.qty, price_snapshot=i.price_snapshot) for i in order.items],
+        items=[
+            OrderTodayItemRead(menu_item_id=i.menu_item_id, qty=i.qty, price_snapshot=i.price_snapshot, name=i.name)
+            for i in order.items
+        ],
     )
 
 
@@ -295,7 +306,7 @@ def _serialize_order(order: Order) -> OrderTodayRead:
                 menu_item_id=item.menu_item_id,
                 qty=item.qty,
                 price_snapshot=item.price_snapshot,
-                name=item.menu_item.name if item.menu_item else None,
+                name=item.name or (item.menu_item.name if item.menu_item else None),
             )
             for item in order.items
         ],

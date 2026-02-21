@@ -1,9 +1,10 @@
 from decimal import Decimal
+from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app, startup
 from app.db.session import SessionLocal
-from app.models import RestaurantSetting, User
+from app.models import MenuItem, RestaurantSetting, User
 from app.core.security import get_password_hash
 
 startup()
@@ -147,3 +148,87 @@ def test_cutlery_addon_settings_and_order_totals() -> None:
 
     total_diff = Decimal(with_cutlery_payload['total_amount']) - Decimal(without_cutlery_payload['total_amount'])
     assert total_diff == Decimal('1.50')
+
+
+def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
+    allow_orders_now()
+
+    with SessionLocal() as db:
+        restaurant_user = db.query(User).filter(User.username == "restaurant_today").first()
+        if restaurant_user is None:
+            db.add(
+                User(
+                    username="restaurant_today",
+                    password_hash=get_password_hash("restpass"),
+                    role="RESTAURANT",
+                    email="restaurant_today@example.com",
+                    is_active=True,
+                )
+            )
+            db.commit()
+
+    login_customer()
+    companies = client.get('/api/v1/companies').json()
+    company_name = companies[0]['name']
+    company_id = companies[0]['id']
+    updated = client.patch('/api/v1/me', json={'name': 'Pilot User', 'postal_code': '66-400', 'company_id': company_id})
+    assert updated.status_code == 200
+
+    with SessionLocal() as db:
+        suffix = uuid4().hex[:6]
+        menu_item_1 = MenuItem(name=f'Test Item 1 {suffix}', description='A', price=Decimal('10.00'), category='Dania dnia', is_active=True)
+        menu_item_2 = MenuItem(name=f'Test Item 2 {suffix}', description='B', price=Decimal('12.00'), category='Dania dnia', is_active=True)
+        db.add_all([menu_item_1, menu_item_2])
+        db.commit()
+        db.refresh(menu_item_1)
+        db.refresh(menu_item_2)
+
+    item1 = {'id': menu_item_1.id, 'name': menu_item_1.name}
+    item2 = {'id': menu_item_2.id, 'name': menu_item_2.name}
+
+    order_a = client.post(
+        '/api/v1/orders',
+        json={
+            'payment_method': 'BLIK',
+            'notes': 'A',
+            'cutlery': True,
+            'items': [{'menu_item_id': item1['id'], 'qty': 2}],
+        },
+    )
+    assert order_a.status_code == 200
+
+    order_b = client.post(
+        '/api/v1/orders',
+        json={
+            'payment_method': 'BLIK',
+            'notes': 'B',
+            'cutlery': False,
+            'items': [{'menu_item_id': item1['id'], 'qty': 1}, {'menu_item_id': item2['id'], 'qty': 1}],
+        },
+    )
+    assert order_b.status_code == 200
+
+    rest_login = client.post('/login', data={'username': 'restaurant_today', 'password': 'restpass'}, follow_redirects=False)
+    assert rest_login.status_code == 303
+
+    page = client.get('/restaurant/orders/today')
+    assert page.status_code == 200
+
+    html = page.text
+    assert 'Zamówienia na dziś' in html
+    assert company_name in html
+    assert 'Uwagi:</strong> A' in html
+    assert 'Uwagi:</strong> B' in html
+    assert 'Sztućce:' in html
+    assert f'{item1["name"]} x 2' in html
+    assert item1['name'] in html
+    assert item2['name'] in html
+    assert f'>{item1["name"]}</td>' in html
+    assert '>3<' in html
+    assert f'>{item2["name"]}</td>' in html
+    assert '>1<' in html
+
+    payload_a = order_a.json()
+    payload_b = order_b.json()
+    assert f"{Decimal(payload_a['total_amount']):.2f}" in html
+    assert f"{Decimal(payload_b['total_amount']):.2f}" in html
