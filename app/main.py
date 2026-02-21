@@ -183,6 +183,67 @@ def login_page(request: Request, error: str | None = None):
     return render_template(request, "login.html", {"error": error})
 
 
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, error: str | None = None, username: str = ""):
+    current = _session_user(request)
+    if current:
+        return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
+    return render_template(request, "register.html", {"error": error, "username": username})
+
+
+@app.post("/register", response_class=RedirectResponse)
+async def register_submit(request: Request):
+    current = _session_user(request)
+    if current:
+        return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
+
+    form = await _form_data(request)
+    username = form.get("username", "").strip()
+    password = form.get("password", "")
+    confirm_password = form.get("confirm_password", "")
+
+    if len(username) < 3:
+        return register_page(request, error="Username must be at least 3 characters.", username=username)
+    if len(password) < 4:
+        return register_page(request, error="Password must be at least 4 characters.", username=username)
+    if password != confirm_password:
+        return register_page(request, error="Passwords do not match.", username=username)
+
+    with SessionLocal() as db:
+        existing = db.scalar(select(User).where(User.username == username).limit(1))
+        if existing is not None:
+            return register_page(request, error="Username already exists.", username=username)
+
+        customer_role = normalize_user_role("CUSTOMER")
+        user = User(
+            username=username,
+            password_hash=get_password_hash(password),
+            role=customer_role,
+            email=username,
+            is_active=True,
+        )
+        db.add(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            db.rollback()
+            return register_page(request, error="Username already exists.", username=username)
+
+        customer = ensure_customer_profile(db, user)
+        if customer is None:
+            return register_page(request, error="Could not create customer profile.", username=username)
+
+        request.session.clear()
+        request.session["user_id"] = user.id
+        request.session["username"] = user.username
+        request.session["role"] = customer_role
+        request.session["customer_id"] = customer.id
+        request.session["customer_email"] = customer.email
+
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.post("/login", response_class=RedirectResponse)
 async def login_submit(request: Request):
     form = await _form_data(request)
