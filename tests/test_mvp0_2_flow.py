@@ -232,3 +232,58 @@ def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
     payload_b = order_b.json()
     assert f"{Decimal(payload_a['total_amount']):.2f}" in html
     assert f"{Decimal(payload_b['total_amount']):.2f}" in html
+
+
+def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
+    allow_orders_now()
+    login_customer()
+
+    companies = client.get('/api/v1/companies').json()
+    company_id = companies[0]['id']
+    profile_update = client.patch('/api/v1/me', json={'name': 'Debug User', 'postal_code': '66-400', 'company_id': company_id})
+    assert profile_update.status_code == 200
+
+    menu = client.get('/api/v1/menu/today').json()
+    first_item_id = menu['items'][0]['id']
+    create = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    assert create.status_code == 200
+    created_id = create.json()['order_id']
+
+    debug_orders = client.get('/__debug/orders')
+    assert debug_orders.status_code == 200
+    assert any(order['id'] == created_id for order in debug_orders.json())
+
+    debug_today = client.get('/__debug/orders/today')
+    assert debug_today.status_code == 200
+    debug_today_payload = debug_today.json()
+    assert debug_today_payload['tz'] == 'UTC'
+    assert 'today_start' in debug_today_payload
+    assert 'today_end' in debug_today_payload
+    assert any(order['id'] == created_id for order in debug_today_payload['orders'])
+
+    my_today = client.get('/api/v1/orders/me/today')
+    assert my_today.status_code == 200
+    my_today_payload = my_today.json()
+    assert my_today_payload is not None
+    assert my_today_payload['order_id'] == created_id
+
+    with SessionLocal() as db:
+        restaurant_user = db.query(User).filter(User.username == 'restaurant_debug').first()
+        if restaurant_user is None:
+            db.add(
+                User(
+                    username='restaurant_debug',
+                    password_hash=get_password_hash('restpass'),
+                    role='RESTAURANT',
+                    email='restaurant_debug@example.com',
+                    is_active=True,
+                )
+            )
+            db.commit()
+
+    rest_login = client.post('/login', data={'username': 'restaurant_debug', 'password': 'restpass'}, follow_redirects=False)
+    assert rest_login.status_code == 303
+
+    restaurant_today_page = client.get('/restaurant/orders/today')
+    assert restaurant_today_page.status_code == 200
+    assert f'#{created_id}' in restaurant_today_page.text
