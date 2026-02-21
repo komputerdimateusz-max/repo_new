@@ -6,7 +6,7 @@ import logging
 import os
 import subprocess
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, quote_plus
 from pathlib import Path
 from uuid import uuid4
@@ -508,7 +508,11 @@ def restaurant_menu_edit(request: Request, item_id: int):
         item = db.get(MenuItem, item_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Menu item not found")
-    return render_template(request, "restaurant_menu_form.html", {"item": item, "categories": MENU_CATEGORIES})
+    return render_template(
+        request,
+        "restaurant_menu_edit.html",
+        {"item": item, "categories": MENU_CATEGORIES, "error": None, "form": None},
+    )
 
 
 @app.post("/restaurant/menu", response_class=RedirectResponse)
@@ -537,19 +541,82 @@ async def restaurant_menu_create(request: Request):
     return RedirectResponse(url="/restaurant/menu", status_code=303)
 
 
+@app.post("/restaurant/menu/{item_id}/edit", response_class=RedirectResponse)
 @app.post("/restaurant/menu/{item_id}", response_class=RedirectResponse)
 async def restaurant_menu_update(request: Request, item_id: int):
     form = await _form_data(request)
-    name = form.get("name", "")
-    description = form.get("description", "")
-    price = Decimal(form.get("price", "0"))
-    category = form.get("category", "")
-    is_standard = form.get("is_standard") == "true"
-    is_active = form.get("is_active") == "true"
-    image_url = form.get("image_url", "")
+    name = form.get("name", "").strip()
+    description = form.get("description", "").strip()
+    price_raw = form.get("price", "").strip()
+    category = form.get("category")
+    is_active_raw = form.get("is_active")
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
+
+    with SessionLocal() as db:
+        item = db.get(MenuItem, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+
+    if not name:
+        return render_template(
+            request,
+            "restaurant_menu_edit.html",
+            {
+                "item": item,
+                "categories": MENU_CATEGORIES,
+                "error": "Name is required.",
+                "form": {
+                    "name": name,
+                    "description": description,
+                    "price": price_raw,
+                    "category": category,
+                    "is_active": is_active_raw in {"true", "on", "1"},
+                },
+            }
+        )
+
+    try:
+        price = Decimal(price_raw)
+    except (InvalidOperation, TypeError):
+        return render_template(
+            request,
+            "restaurant_menu_edit.html",
+            {
+                "item": item,
+                "categories": MENU_CATEGORIES,
+                "error": "Price must be numeric.",
+                "form": {
+                    "name": name,
+                    "description": description,
+                    "price": price_raw,
+                    "category": category,
+                    "is_active": is_active_raw in {"true", "on", "1"},
+                },
+            }
+        )
+
+    if price < 0:
+        return render_template(
+            request,
+            "restaurant_menu_edit.html",
+            {
+                "item": item,
+                "categories": MENU_CATEGORIES,
+                "error": "Price must be greater than or equal to 0.",
+                "form": {
+                    "name": name,
+                    "description": description,
+                    "price": price_raw,
+                    "category": category,
+                    "is_active": is_active_raw in {"true", "on", "1"},
+                },
+            }
+        )
+
+    is_active = is_active_raw in {"true", "on", "1"}
+
     with SessionLocal() as db:
         item = db.get(MenuItem, item_id)
         if item is None:
@@ -557,10 +624,9 @@ async def restaurant_menu_update(request: Request, item_id: int):
         item.name = name
         item.description = description or None
         item.price = price
-        item.category = category
-        item.is_standard = is_standard
+        if category is not None and category != "":
+            item.category = category
         item.is_active = is_active
-        item.image_url = image_url or None
         db.commit()
     return RedirectResponse(url="/restaurant/menu", status_code=303)
 
