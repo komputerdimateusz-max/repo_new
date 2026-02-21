@@ -37,7 +37,7 @@ body {
 
 .topbar {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
   padding: 0.95rem 1rem;
@@ -437,10 +437,6 @@ textarea {
   .topbar-left {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .topbar-center {
-    width: 100%;
   }
 
   .company-select {
