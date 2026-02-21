@@ -13,6 +13,13 @@
     <input id="delivery_fee" type="number" step="0.01" name="delivery_fee" value="{{ settings.delivery_fee }}" required />
   </div>
 
+
+  <div style="margin-bottom: 14px;">
+    <label for="cutlery_price">Cena za sztućce (zł)</label><br />
+    <small style="color:#666;">Opcjonalna dopłata, jeśli klient zaznaczy sztućce do zamówienia.</small><br />
+    <input id="cutlery_price" type="number" step="0.01" name="cutlery_price" value="{{ settings.cutlery_price }}" required />
+  </div>
+
   <div style="margin-bottom: 14px;">
     <label for="delivery_window_start">Początek okna dostawy</label><br />
     <small style="color:#666;">Godzina rozpoczęcia dostaw (informacja wyświetlana klientowi).</small><br />

@@ -94,6 +94,7 @@ def get_settings(db: Session = Depends(get_db)) -> SettingsResponse:
     return SettingsResponse(
         cut_off_time=app_settings.cut_off_time,
         delivery_fee=app_settings.delivery_fee,
+        cutlery_price=app_settings.cutlery_price,
         delivery_window_start=app_settings.delivery_window_start,
         delivery_window_end=app_settings.delivery_window_end,
         now_server=_now_server(),
@@ -218,7 +219,9 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         subtotal += item.price * line.qty
         order_items.append(OrderItem(menu_item_id=item.id, qty=line.qty, price_snapshot=item.price))
 
-    total = subtotal + app_settings.delivery_fee
+    cutlery_price = app_settings.cutlery_price
+    extras_total = cutlery_price if payload.cutlery else Decimal("0.00")
+    total = subtotal + app_settings.delivery_fee + extras_total
     order = Order(
         customer_id=customer.id,
         company_id=customer.company_id,
@@ -227,6 +230,9 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         payment_method=payload.payment_method,
         subtotal_amount=subtotal,
         delivery_fee=app_settings.delivery_fee,
+        cutlery=payload.cutlery,
+        cutlery_price=cutlery_price,
+        extras_total=extras_total,
         total_amount=total,
     )
     order.items = order_items
@@ -239,6 +245,9 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         status=order.status,
         subtotal_amount=order.subtotal_amount,
         delivery_fee=order.delivery_fee,
+        cutlery=order.cutlery,
+        cutlery_price=order.cutlery_price,
+        extras_total=order.extras_total,
         total_amount=order.total_amount,
         delivery_window_start=app_settings.delivery_window_start,
         delivery_window_end=app_settings.delivery_window_end,
@@ -275,6 +284,9 @@ def _serialize_order(order: Order) -> OrderTodayRead:
         created_at=order.created_at,
         subtotal_amount=order.subtotal_amount,
         delivery_fee=order.delivery_fee,
+        cutlery=order.cutlery,
+        cutlery_price=order.cutlery_price,
+        extras_total=order.extras_total,
         total_amount=order.total_amount,
         payment_method=order.payment_method,
         notes=order.notes,
@@ -306,6 +318,7 @@ def admin_patch_settings(
     app_settings = _get_settings(db)
     app_settings.cut_off_time = payload.cut_off_time
     app_settings.delivery_fee = payload.delivery_fee
+    app_settings.cutlery_price = payload.cutlery_price
     app_settings.delivery_window_start = payload.delivery_window_start
     app_settings.delivery_window_end = payload.delivery_window_end
     db.commit()

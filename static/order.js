@@ -1,4 +1,5 @@
 const CART_KEY = 'cart_v1';
+const EXTRAS_KEY = 'order_extras_v1';
 
 const state = {
   settings: null,
@@ -6,6 +7,7 @@ const state = {
   me: null,
   menu: { categories: [], active_category: null, items: [] },
   cart: loadCart(),
+  extras: loadExtras(),
 };
 
 function loadCart() {
@@ -21,6 +23,20 @@ function loadCart() {
   }
 }
 
+
+function loadExtras() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EXTRAS_KEY) || '{}');
+    return { cutlery: Boolean(parsed.cutlery) };
+  } catch (_error) {
+    return { cutlery: false };
+  }
+}
+
+function saveExtras() {
+  localStorage.setItem(EXTRAS_KEY, JSON.stringify(state.extras));
+}
+
 function saveCart() {
   localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
   console.log('[CART] state', state.cart);
@@ -29,6 +45,8 @@ function saveCart() {
 function clearCart() {
   localStorage.removeItem(CART_KEY);
   state.cart = { items: {}, notes: '', payment_method: '' };
+  state.extras = { cutlery: false };
+  saveExtras();
 }
 
 function formatMoney(value) {
@@ -162,11 +180,14 @@ function renderCart() {
 
   const subtotal = entries.reduce((sum, item) => sum + item.qty * item.price, 0);
   const delivery = Number(state.settings?.delivery_fee || 0);
+  const cutleryPrice = Number(state.settings?.cutlery_price || 0);
+  const extrasTotal = state.extras.cutlery ? cutleryPrice : 0;
 
   document.querySelector('[data-summary-subtotal]').textContent = formatMoney(subtotal);
   document.querySelector('[data-summary-delivery]').textContent = formatMoney(delivery);
+  document.querySelector('[data-summary-extras]').textContent = formatMoney(extrasTotal);
   document.querySelector('[data-summary-window]').textContent = `${state.settings?.delivery_window_start || '--:--'}–${state.settings?.delivery_window_end || '--:--'}`;
-  document.querySelector('[data-summary-total]').textContent = formatMoney(subtotal + delivery);
+  document.querySelector('[data-summary-total]').textContent = formatMoney(subtotal + delivery + extrasTotal);
 
   const hasCompany = Boolean(state.me?.company_id);
   document.querySelector('[data-company-required-banner]').hidden = hasCompany;
@@ -175,10 +196,20 @@ function renderCart() {
 
 function wireSidebarInputs() {
   const notes = document.querySelector('[data-cart-notes]');
+  const cutleryCheckbox = document.querySelector('[data-cutlery-checkbox]');
+  const cutleryHelper = document.querySelector('[data-cutlery-helper]');
   notes.value = state.cart.notes;
   notes.addEventListener('input', () => {
     state.cart.notes = notes.value;
     saveCart();
+  });
+
+  cutleryCheckbox.checked = Boolean(state.extras.cutlery);
+  cutleryHelper.textContent = `Dopłata: ${formatMoney(Number(state.settings?.cutlery_price || 0))}`;
+  cutleryCheckbox.addEventListener('change', () => {
+    state.extras.cutlery = cutleryCheckbox.checked;
+    saveExtras();
+    renderCart();
   });
 
   for (const button of document.querySelectorAll('[data-payment-method]')) {
@@ -208,6 +239,8 @@ async function submitOrder() {
   const payload = {
     notes: state.cart.notes,
     payment_method: state.cart.payment_method,
+    cutlery: Boolean(state.extras.cutlery),
+    cutlery_price: Number(state.settings?.cutlery_price || 0),
     items: Object.values(state.cart.items).map((item) => ({ menu_item_id: item.id, qty: item.qty })),
   };
 

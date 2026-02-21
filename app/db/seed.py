@@ -32,6 +32,7 @@ def ensure_seed_data(session: Session) -> None:
                 id=1,
                 cut_off_time="11:00",
                 delivery_fee=Decimal("5.00"),
+                cutlery_price=Decimal("0.00"),
                 delivery_window_start="12:00",
                 delivery_window_end="13:00",
             )

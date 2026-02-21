@@ -786,6 +786,7 @@ async def restaurant_settings_save(request: Request):
     form = await _form_data(request)
     cut_off_time = form.get("cut_off_time", "")
     delivery_fee = Decimal(form.get("delivery_fee", "0"))
+    cutlery_price = Decimal(form.get("cutlery_price", "0"))
     delivery_window_start = form.get("delivery_window_start", "")
     delivery_window_end = form.get("delivery_window_end", "")
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
@@ -797,6 +798,7 @@ async def restaurant_settings_save(request: Request):
             raise HTTPException(status_code=500, detail="Settings row is missing")
         app_settings.cut_off_time = cut_off_time
         app_settings.delivery_fee = delivery_fee
+        app_settings.cutlery_price = cutlery_price
         app_settings.delivery_window_start = delivery_window_start
         app_settings.delivery_window_end = delivery_window_end
         db.commit()

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class SettingsResponse(BaseModel):
     cut_off_time: str
     delivery_fee: Decimal
+    cutlery_price: Decimal
     delivery_window_start: str
     delivery_window_end: str
     now_server: datetime
@@ -58,6 +59,8 @@ class OrderItemCreate(BaseModel):
 class OrderCreateRequest(BaseModel):
     notes: str | None = None
     payment_method: str
+    cutlery: bool = False
+    cutlery_price: Decimal = Decimal("0.00")
     items: list[OrderItemCreate]
 
 
@@ -66,6 +69,9 @@ class OrderCreateResponse(BaseModel):
     status: str
     subtotal_amount: Decimal
     delivery_fee: Decimal
+    cutlery: bool
+    cutlery_price: Decimal
+    extras_total: Decimal
     total_amount: Decimal
     delivery_window_start: str
     delivery_window_end: str
@@ -90,6 +96,9 @@ class OrderTodayRead(BaseModel):
     created_at: datetime
     subtotal_amount: Decimal
     delivery_fee: Decimal
+    cutlery: bool
+    cutlery_price: Decimal
+    extras_total: Decimal
     total_amount: Decimal
     payment_method: str
     notes: str | None
@@ -99,6 +108,7 @@ class OrderTodayRead(BaseModel):
 class AdminSettingsUpdateRequest(BaseModel):
     cut_off_time: str
     delivery_fee: Decimal
+    cutlery_price: Decimal
     delivery_window_start: str
     delivery_window_end: str
 
