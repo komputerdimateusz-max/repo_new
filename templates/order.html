@@ -10,12 +10,6 @@
       <span class="delivery-pill">Dostawa: dziś</span>
     </div>
 
-    <div class="topbar-center">
-      {% if selected_company_name %}
-      <span>Twoja firma: <strong>{{ selected_company_name }}</strong></span>
-      {% endif %}
-    </div>
-
     <div class="topbar-right">
       <div class="code-block">
         <span class="postal-code" data-user-email>{{ current_username|default(user_email)|default('Guest') }} ({{ current_user_role|default('CUSTOMER') }})</span>
@@ -48,7 +42,7 @@
       <ul class="cart-list" data-cart-list></ul>
 
       <label class="sr-only" for="cart-note">Uwagi do zamówienia</label>
-      <textarea id="cart-note" rows="3" placeholder="Uwagi do zamówienia..." data-cart-notes></textarea>
+      <textarea id="cart-note" rows="3" placeholder="Wpisz informację, którą umieścimy na kartce do identyfikacji Twojego zamówienia" data-cart-notes></textarea>
 
       <div class="payment-row" role="group" aria-label="Metoda płatności">
         <button class="pay-btn" type="button" data-payment-method="BLIK">BLIK</button>
