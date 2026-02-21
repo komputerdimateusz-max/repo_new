@@ -1,47 +1,34 @@
 <!doctype html>
 <html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mój profil</title>
+  </head>
   <body>
-    <h1>Profil</h1>
+    <h1>Mój profil</h1>
+
+    {% if message %}
+    <p>{{ message }}</p>
+    {% endif %}
+
+    <p>Zalogowany jako: <strong>{{ username }}</strong></p>
     <p>{{ email }}</p>
-    <form id="profile-form">
-      <label>Imię i nazwisko <input name="name" placeholder="name" required /></label><br />
-      <label>Kod pocztowy <input name="postal_code" placeholder="postal code" /></label><br />
-      <label>Firma
-        <select name="company_id" id="company_id" required>
-          <option value="">Wybierz firmę</option>
-        </select>
-      </label>
-      <button type="submit">Save</button>
+
+    <form method="post" action="/profile">
+      <label for="company_id">Twoja firma:</label>
+      <select name="company_id" id="company_id" required>
+        <option value="">Wybierz firmę</option>
+        {% for company in companies %}
+        <option value="{{ company.id }}" {% if company_id == company.id %}selected{% endif %}>{{ company.name }}</option>
+        {% endfor %}
+      </select>
+
+      <p>Wybierz firmę, aby móc składać zamówienia na dziś.</p>
+
+      <button type="submit">Zapisz</button>
     </form>
-    <p id="msg"></p>
 
-    <script>
-      async function init() {
-        const me = await fetch('/api/v1/me').then(r => r.json());
-        const companies = await fetch('/api/v1/companies').then(r => r.json());
-        const sel = document.getElementById('company_id');
-        sel.innerHTML = '<option value="">Wybierz firmę</option>' + companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-        document.querySelector('[name=name]').value = me.name;
-        document.querySelector('[name=postal_code]').value = me.postal_code || '';
-        if (me.company_id) sel.value = String(me.company_id);
-      }
-
-      document.getElementById('profile-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const companyId = document.getElementById('company_id').value;
-        if (!companyId) {
-          document.getElementById('msg').textContent = 'Wybierz firmę.';
-          return;
-        }
-        const payload = {
-          name: document.querySelector('[name=name]').value,
-          postal_code: document.querySelector('[name=postal_code]').value || null,
-          company_id: Number(companyId),
-        };
-        await fetch('/api/v1/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        window.location.href = '/';
-      });
-      init();
-    </script>
+    <p><a href="/">Back</a></p>
   </body>
 </html>

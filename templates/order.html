@@ -11,10 +11,9 @@
     </div>
 
     <div class="topbar-center">
-      <label class="sr-only" for="company-select">Wybierz firmę</label>
-      <select id="company-select" class="company-select" aria-label="Wybierz firmę" data-company-select>
-        <option value="">Wybierz firmę</option>
-      </select>
+      {% if selected_company_name %}
+      <span>Twoja firma: <strong>{{ selected_company_name }}</strong></span>
+      {% endif %}
     </div>
 
     <div class="topbar-right">
@@ -44,7 +43,7 @@
     <aside class="cart-panel card-shell" aria-label="Koszyk">
       <h2>Twój koszyk</h2>
       <p data-inline-message hidden></p>
-      <div data-company-required-banner hidden style="background:#fef3f2;color:#b42318;padding:8px;border-radius:8px;">Wybierz firmę w profilu aby zamówić. <a href="/profile">Przejdź do profilu</a></div>
+      <div data-company-required-banner {% if not company_required %}hidden{% endif %} style="background:#fef3f2;color:#b42318;padding:8px;border-radius:8px;">Wybierz firmę w profilu, aby złożyć zamówienie. <a href="/profile">Przejdź do profilu</a></div>
       <div data-order-confirmation></div>
       <ul class="cart-list" data-cart-list></ul>
 
@@ -76,7 +75,7 @@
         </div>
       </dl>
 
-      <button type="button" class="checkout-btn" data-checkout-btn disabled>Zamawiam i płacę</button>
+      <button type="button" class="checkout-btn" data-checkout-btn {% if company_required %}disabled{% endif %}>Zamawiam i płacę</button>
       <a href="/my-order">Moje zamówienie (dziś)</a>
       <div data-my-orders></div>
       <p class="cart-footnote">To zamówienie zostanie zrealizowane dzisiaj.</p>

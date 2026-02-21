@@ -168,8 +168,9 @@ function renderCart() {
   document.querySelector('[data-summary-window]').textContent = `${state.settings?.delivery_window_start || '--:--'}–${state.settings?.delivery_window_end || '--:--'}`;
   document.querySelector('[data-summary-total]').textContent = formatMoney(subtotal + delivery);
 
-  document.querySelector('[data-company-required-banner]').hidden = true;
-  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0;
+  const hasCompany = Boolean(state.me?.company_id);
+  document.querySelector('[data-company-required-banner]').hidden = hasCompany;
+  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0 || !hasCompany;
 }
 
 function wireSidebarInputs() {

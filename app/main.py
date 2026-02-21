@@ -28,7 +28,7 @@ from app.db.base import Base
 from app.db.migrations import ensure_sqlite_schema
 from app.db.seed import ensure_seed_data
 from app.db.session import SessionLocal, engine
-from app.models import MenuItem, RestaurantSetting, User
+from app.models import Company, MenuItem, RestaurantSetting, User
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
 
@@ -167,10 +167,25 @@ def root(request: Request):
     current = _require_role_page(request, {"CUSTOMER", "ADMIN"})
     if isinstance(current, RedirectResponse):
         return current
+    company_required = False
+    selected_company_name = None
+    if str(current["role"]) == "CUSTOMER":
+        with SessionLocal() as db:
+            user = db.get(User, int(current["user_id"]))
+            customer = ensure_customer_profile(db, user) if user is not None else None
+            if customer is None or customer.company_id is None:
+                company_required = True
+            else:
+                company = db.get(Company, customer.company_id)
+                selected_company_name = company.name if company is not None and company.is_active else None
+                company_required = selected_company_name is None
+
     context = {
         "order_ui_build": ORDER_UI_BUILD_ID,
         "user_email": current["username"],
         "debug_ui": settings.debug_ui,
+        "company_required": company_required,
+        "selected_company_name": selected_company_name,
     }
     return render_template(request, "order.html", context)
 
@@ -372,7 +387,56 @@ def profile_page(request: Request):
     current = _require_role_page(request, {"CUSTOMER"})
     if isinstance(current, RedirectResponse):
         return current
-    return render_template(request, "profile.html", {"email": request.session.get("customer_email", current["username"])})
+    message = request.query_params.get("message")
+    with SessionLocal() as db:
+        user = db.get(User, int(current["user_id"]))
+        if user is None:
+            request.session.clear()
+            return RedirectResponse(url="/login", status_code=303)
+        customer = ensure_customer_profile(db, user)
+        if customer is None:
+            return HTMLResponse("<h1>500</h1><p>Nie udało się utworzyć profilu klienta.</p>", status_code=500)
+        companies = db.scalars(select(Company).where(Company.is_active.is_(True)).order_by(Company.name.asc())).all()
+
+    return render_template(
+        request,
+        "profile.html",
+        {
+            "username": current["username"],
+            "email": customer.email,
+            "company_id": customer.company_id,
+            "companies": companies,
+            "message": message,
+        },
+    )
+
+
+@app.post("/profile", response_class=RedirectResponse)
+async def profile_submit(request: Request):
+    current = _require_role_page(request, {"CUSTOMER"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    form = await _form_data(request)
+    company_id_raw = form.get("company_id", "").strip()
+    if not company_id_raw.isdigit():
+        return RedirectResponse(url="/profile?message=Nieprawid%C5%82owa%20firma", status_code=303)
+    company_id = int(company_id_raw)
+
+    with SessionLocal() as db:
+        user = db.get(User, int(current["user_id"]))
+        customer = ensure_customer_profile(db, user) if user is not None else None
+        if customer is None:
+            return RedirectResponse(url="/profile?message=Nie%20uda%C5%82o%20si%C4%99%20zapisa%C4%87", status_code=303)
+
+        company = db.scalar(select(Company).where(Company.id == company_id, Company.is_active.is_(True)).limit(1))
+        if company is None:
+            return RedirectResponse(url="/profile?message=Nieprawid%C5%82owa%20firma", status_code=303)
+
+        customer.company_id = company.id
+        db.commit()
+
+    return RedirectResponse(url="/profile?message=Zapisano", status_code=303)
 
 
 @app.get("/my-order", response_class=HTMLResponse)
