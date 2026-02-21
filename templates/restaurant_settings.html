@@ -1,10 +1,30 @@
 <!doctype html><html><body>
 <h1>Restaurant settings</h1>
 <form method="post" action="/restaurant/settings">
-  <input type="text" name="cut_off_time" value="{{ settings.cut_off_time }}" required />
-  <input type="number" step="0.01" name="delivery_fee" value="{{ settings.delivery_fee }}" required />
-  <input type="text" name="delivery_window_start" value="{{ settings.delivery_window_start }}" required />
-  <input type="text" name="delivery_window_end" value="{{ settings.delivery_window_end }}" required />
+  <div style="margin-bottom: 14px;">
+    <label for="cut_off_time">Czas zamknięcia zamówień (cut-off)</label><br />
+    <small style="color:#666;">Po tej godzinie klienci nie mogą już składać zamówień na dziś.</small><br />
+    <input id="cut_off_time" type="text" name="cut_off_time" value="{{ settings.cut_off_time }}" required />
+  </div>
+
+  <div style="margin-bottom: 14px;">
+    <label for="delivery_fee">Koszt dostawy (zł)</label><br />
+    <small style="color:#666;">Stała opłata doliczana do każdego zamówienia.</small><br />
+    <input id="delivery_fee" type="number" step="0.01" name="delivery_fee" value="{{ settings.delivery_fee }}" required />
+  </div>
+
+  <div style="margin-bottom: 14px;">
+    <label for="delivery_window_start">Początek okna dostawy</label><br />
+    <small style="color:#666;">Godzina rozpoczęcia dostaw (informacja wyświetlana klientowi).</small><br />
+    <input id="delivery_window_start" type="text" name="delivery_window_start" value="{{ settings.delivery_window_start }}" required />
+  </div>
+
+  <div style="margin-bottom: 14px;">
+    <label for="delivery_window_end">Koniec okna dostawy</label><br />
+    <small style="color:#666;">Godzina zakończenia dostaw (informacja wyświetlana klientowi).</small><br />
+    <input id="delivery_window_end" type="text" name="delivery_window_end" value="{{ settings.delivery_window_end }}" required />
+  </div>
+
   <button type="submit">Save</button>
 </form>
 <a href="/restaurant">Back</a>
