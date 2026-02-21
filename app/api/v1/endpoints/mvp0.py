@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from io import StringIO
@@ -35,7 +36,11 @@ from app.schemas.mvp import (
     SettingsResponse,
 )
 
+from app.utils.time import today_window_local
+
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 MENU_CATEGORIES = ["Dania dnia", "Zupy", "Drugie", "Fit", "Napoje", "Dodatki"]
 ALLOWED_ORDER_STATUSES = {"NEW", "CONFIRMED", "CANCELLED"}
@@ -245,8 +250,14 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     )
     order.items = order_items
     db.add(order)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("[ORDER] failed to create order for user_id=%s", customer.user_id)
+        raise HTTPException(status_code=500, detail="Could not save order.")
     db.refresh(order)
+    logger.info("[ORDER] created id=%s, created_at=%s, user_id=%s", order.id, order.created_at.isoformat(), customer.user_id)
 
     return OrderCreateResponse(
         order_id=order.id,
@@ -271,18 +282,19 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
 @router.get("/orders/me/today", response_model=OrderTodayRead | None)
 def my_today_latest_order(request: Request, db: Session = Depends(get_db)) -> OrderTodayRead | None:
     customer = _require_customer(request, db)
-    today = date.today()
-    orders = db.execute(
+    today_start, today_end = today_window_local()
+    order = db.execute(
         select(Order)
         .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
-        .where(Order.customer_id == customer.id)
-        .where(Order.created_at >= datetime.combine(today, datetime.min.time()))
+        .join(Customer, Customer.id == Order.customer_id)
+        .where(Customer.user_id == customer.user_id)
+        .where(Order.created_at >= today_start, Order.created_at < today_end)
         .order_by(Order.created_at.desc())
-    ).unique().scalars().all()
-    today_orders = [order for order in orders if order.created_at.date() == today]
-    if not today_orders:
+        .limit(1)
+    ).unique().scalar_one_or_none()
+    if order is None:
         return None
-    return _serialize_order(today_orders[0])
+    return _serialize_order(order)
 
 
 def _serialize_order(order: Order) -> OrderTodayRead:
@@ -449,14 +461,14 @@ def admin_specials_delete(special_id: int, request: Request, db: Session = Depen
 @router.get("/admin/orders/today", response_model=list[OrderTodayRead])
 def admin_today_orders(request: Request, db: Session = Depends(get_db)) -> list[OrderTodayRead]:
     _require_admin(request)
-    today = date.today()
+    today_start, today_end = today_window_local()
     orders = db.execute(
         select(Order)
         .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
-        .where(Order.created_at >= datetime.combine(today, datetime.min.time()))
+        .where(Order.created_at >= today_start, Order.created_at < today_end)
         .order_by(Order.created_at.desc())
     ).unique().scalars().all()
-    return [_serialize_order(order) for order in orders if order.created_at.date() == today]
+    return [_serialize_order(order) for order in orders]
 
 
 @router.patch("/admin/orders/{order_id}")

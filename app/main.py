@@ -32,6 +32,7 @@ from app.models import Company, MenuItem, Order, RestaurantSetting, User
 from app.models.user import Customer
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
+from app.utils.time import today_window_local
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
@@ -382,6 +383,67 @@ def debug_menu():
         for item in rows
     ]
 
+
+
+
+@app.get("/__debug/orders", include_in_schema=False)
+def debug_orders(request: Request):
+    with SessionLocal() as db:
+        orders = db.execute(
+            select(Order)
+            .options(joinedload(Order.items), joinedload(Order.customer))
+            .order_by(Order.created_at.desc())
+            .limit(20)
+        ).unique().scalars().all()
+
+    return [
+        {
+            "id": order.id,
+            "created_at": order.created_at.isoformat(),
+            "customer_user_id": order.customer.user_id if order.customer is not None else None,
+            "notes": order.notes,
+            "cutlery": order.cutlery,
+            "total": str(order.total_amount),
+            "item_count": len(order.items),
+        }
+        for order in orders
+    ]
+
+
+@app.get("/__debug/orders/today", include_in_schema=False)
+def debug_orders_today(request: Request):
+    today_start, today_end = today_window_local()
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        orders = db.execute(
+            select(Order)
+            .options(joinedload(Order.items), joinedload(Order.customer))
+            .where(Order.created_at >= today_start, Order.created_at < today_end)
+            .order_by(Order.created_at.desc())
+        ).unique().scalars().all()
+
+    serialized_orders = [
+        {
+            "id": order.id,
+            "created_at": order.created_at.isoformat(),
+            "customer_user_id": order.customer.user_id if order.customer is not None else None,
+            "notes": order.notes,
+            "cutlery": order.cutlery,
+            "total": str(order.total_amount),
+            "item_count": len(order.items),
+        }
+        for order in orders
+    ]
+
+    return {
+        "tz": "UTC",
+        "today_start": today_start.isoformat(),
+        "today_end": today_end.isoformat(),
+        "now": now.isoformat(),
+        "count": len(serialized_orders),
+        "orders": serialized_orders,
+    }
 
 @app.get("/profile", response_class=HTMLResponse)
 def profile_page(request: Request):
@@ -812,26 +874,19 @@ def restaurant_orders_today_page(request: Request):
     if isinstance(current, RedirectResponse):
         return current
 
-    today = date.today()
-
-    def _order_local_date(order: Order) -> date:
-        created = order.created_at
-        if created.tzinfo is not None:
-            return created.astimezone().date()
-        return created.date()
+    today_start, today_end = today_window_local()
 
     with SessionLocal() as db:
-        orders = db.scalars(
+        today_orders = db.scalars(
             select(Order)
             .options(
                 joinedload(Order.items),
                 joinedload(Order.customer).joinedload(Customer.user),
                 joinedload(Order.company),
             )
+            .where(Order.created_at >= today_start, Order.created_at < today_end)
             .order_by(Order.created_at.desc())
         ).unique().all()
-
-    today_orders = [order for order in orders if _order_local_date(order) == today]
 
     summary: dict[str, int] = {}
     serialized_orders: list[dict] = []
