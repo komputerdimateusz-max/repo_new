@@ -17,15 +17,18 @@
 </form>
 
 <table border="1" cellpadding="6">
-<tr><th>ID</th><th>Name</th><th>Price</th><th>Category</th><th>Active</th><th>Action</th></tr>
+<tr><th>ID</th><th>Name</th><th>Description</th><th>Price</th><th>Category</th><th>Active</th><th>Action</th></tr>
 {% for item in items %}
 <tr{% if not item.is_active %} style="opacity:0.6"{% endif %}>
   <td>{{ item.id }}</td>
   <td>{{ item.name }}</td>
+  <td>{{ item.description or '' }}</td>
   <td>{{ item.price }}</td>
   <td>{{ item.category }}</td>
   <td>{{ item.is_active if item.is_active else 'Inactive' }}</td>
   <td>
+    <a href="/restaurant/menu/{{ item.id }}/edit">Edytuj</a>
+    |
     <form method="post" action="/restaurant/menu/{{ item.id }}/toggle" style="display:inline">
       <button type="submit">{{ 'Wyłącz' if item.is_active else 'Włącz' }}</button>
     </form>
