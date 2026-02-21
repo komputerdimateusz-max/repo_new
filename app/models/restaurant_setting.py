@@ -16,5 +16,6 @@ class RestaurantSetting(Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     cut_off_time: Mapped[str] = mapped_column(String(5), nullable=False)
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    cutlery_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
     delivery_window_start: Mapped[str] = mapped_column(String(5), nullable=False)
     delivery_window_end: Mapped[str] = mapped_column(String(5), nullable=False)

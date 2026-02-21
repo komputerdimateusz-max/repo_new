@@ -343,6 +343,12 @@ def ensure_sqlite_schema(engine: Engine) -> None:
 
         if "orders" in table_names:
             orders_columns = _sqlite_column_names(connection, "orders")
+            if "cutlery" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN cutlery BOOLEAN NOT NULL DEFAULT 0"))
+            if "cutlery_price" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN cutlery_price NUMERIC(10, 2) NOT NULL DEFAULT 0"))
+            if "extras_total" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN extras_total NUMERIC(10, 2) NOT NULL DEFAULT 0"))
             if "location_id" not in orders_columns:
                 default_location = connection.execute(
                     text("SELECT id FROM locations ORDER BY id ASC LIMIT 1")
@@ -401,6 +407,11 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             order_items_columns = _sqlite_column_names(connection, "order_items")
             if "catalog_item_id" not in order_items_columns:
                 connection.execute(text("ALTER TABLE order_items ADD COLUMN catalog_item_id INTEGER"))
+
+        if "restaurant_settings" in table_names:
+            settings_columns = _sqlite_column_names(connection, "restaurant_settings")
+            if "cutlery_price" not in settings_columns:
+                connection.execute(text("ALTER TABLE restaurant_settings ADD COLUMN cutlery_price NUMERIC(10, 2) NOT NULL DEFAULT 0"))
 
         restaurant_location_indexes = _sqlite_index_names(connection, "restaurant_locations")
         if "uq_restaurant_location" not in restaurant_location_indexes:

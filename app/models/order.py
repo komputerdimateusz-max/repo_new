@@ -26,6 +26,9 @@ class Order(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
+    cutlery: Mapped[bool] = mapped_column(nullable=False, default=False)
+    cutlery_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
+    extras_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0.00"))
     payment_method: Mapped[str] = mapped_column(String(16), nullable=False)
 

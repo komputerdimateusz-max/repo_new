@@ -311,3 +311,75 @@ def test_ensure_sqlite_schema_makes_customers_company_id_nullable(tmp_path: Path
         }
 
     assert columns["company_id"] == 0
+
+
+def test_ensure_sqlite_schema_adds_cutlery_columns(tmp_path: Path) -> None:
+    engine = _build_test_engine(tmp_path / "legacy_cutlery_columns.db")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE restaurant_settings RENAME TO restaurant_settings_old"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE restaurant_settings (
+                    id INTEGER PRIMARY KEY,
+                    cut_off_time VARCHAR(5) NOT NULL,
+                    delivery_fee NUMERIC(10, 2) NOT NULL,
+                    delivery_window_start VARCHAR(5) NOT NULL,
+                    delivery_window_end VARCHAR(5) NOT NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO restaurant_settings (id, cut_off_time, delivery_fee, delivery_window_start, delivery_window_end)
+                SELECT id, cut_off_time, delivery_fee, delivery_window_start, delivery_window_end
+                FROM restaurant_settings_old
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE restaurant_settings_old"))
+
+        connection.execute(text("ALTER TABLE orders RENAME TO orders_old"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE orders (
+                    id INTEGER PRIMARY KEY,
+                    customer_id INTEGER NOT NULL,
+                    company_id INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    notes TEXT,
+                    subtotal_amount NUMERIC(10, 2) NOT NULL,
+                    delivery_fee NUMERIC(10, 2) NOT NULL,
+                    total_amount NUMERIC(10, 2) NOT NULL,
+                    payment_method VARCHAR(16) NOT NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO orders (id, customer_id, company_id, created_at, status, notes, subtotal_amount, delivery_fee, total_amount, payment_method)
+                SELECT id, customer_id, company_id, created_at, status, notes, subtotal_amount, delivery_fee, total_amount, payment_method
+                FROM orders_old
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE orders_old"))
+
+    ensure_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        settings_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(restaurant_settings);"))}
+        order_columns = {str(row[1]) for row in connection.execute(text("PRAGMA table_info(orders);"))}
+
+    assert "cutlery_price" in settings_columns
+    assert "cutlery" in order_columns
+    assert "cutlery_price" in order_columns
+    assert "extras_total" in order_columns

@@ -44,6 +44,14 @@
       <label class="sr-only" for="cart-note">Uwagi do zamówienia</label>
       <textarea id="cart-note" rows="3" placeholder="Wpisz informację, którą umieścimy na kartce do identyfikacji Twojego zamówienia" data-cart-notes></textarea>
 
+      <div style="margin:10px 0;">
+        <label for="cutlery-extra" style="display:flex;align-items:center;gap:8px;">
+          <input id="cutlery-extra" type="checkbox" data-cutlery-checkbox />
+          <span>Dodaj sztućce</span>
+        </label>
+        <small style="color:#666;" data-cutlery-helper>Dopłata: 0,00 zł</small>
+      </div>
+
       <div class="payment-row" role="group" aria-label="Metoda płatności">
         <button class="pay-btn" type="button" data-payment-method="BLIK">BLIK</button>
         <button class="pay-btn" type="button" data-payment-method="KARTA">Karta</button>
@@ -58,6 +66,10 @@
         <div>
           <dt>Dostawa:</dt>
           <dd data-summary-delivery>0,00 zł</dd>
+        </div>
+        <div>
+          <dt>Dodatki:</dt>
+          <dd data-summary-extras>0,00 zł</dd>
         </div>
         <div>
           <dt>Okno:</dt>
