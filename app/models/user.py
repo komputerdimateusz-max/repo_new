@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,7 +21,7 @@ def normalize_user_role(role: str) -> str:
     normalized = ROLE_ALIASES.get(str(role).strip().upper())
     if normalized is None:
         allowed_values = ", ".join(USER_ROLES)
-        raise ValueError(f"Invalid role '{role}'. Allowed values: {allowed_values}")
+        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'. Allowed values: {allowed_values}")
     return normalized
 
 
