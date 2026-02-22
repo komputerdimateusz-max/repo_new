@@ -152,29 +152,21 @@ function renderMenu() {
 function updateCheckoutState() {
   const entries = Object.values(state.cart.items);
   const hasCompany = Boolean(state.me?.company_id);
-  const needsRepeatConfirmation = state.todayOrdersCount >= 1;
-  const repeatConfirmCheckbox = document.querySelector('[data-repeat-order-confirm]');
-  const repeatConfirmed = !needsRepeatConfirmation || Boolean(repeatConfirmCheckbox?.checked);
   document.querySelector('[data-company-required-banner]').hidden = hasCompany;
-  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0 || !hasCompany || !repeatConfirmed;
+  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0 || !hasCompany;
 }
 
 function renderRepeatOrderWarning() {
   const warning = document.querySelector('[data-repeat-order-warning]');
-  const confirmWrap = document.querySelector('[data-repeat-order-confirm-wrap]');
-  const checkbox = document.querySelector('[data-repeat-order-confirm]');
 
   if (state.todayOrdersCount < 1) {
     warning.hidden = true;
-    confirmWrap.hidden = true;
-    if (checkbox) checkbox.checked = false;
     updateCheckoutState();
     return;
   }
 
   warning.hidden = false;
-  confirmWrap.hidden = false;
-  warning.innerHTML = `Uwaga: masz już ${state.todayOrdersCount} zamówienie/a dzisiaj. Kliknij <a href="/my-orders-today">Moje zamówienia (dziś)</a> aby sprawdzić.`;
+  warning.innerHTML = `Masz już ${state.todayOrdersCount} zamówienie/a dzisiaj. Sprawdź: <a href="/my-orders-today">Moje zamówienia (dziś)</a>.`;
   updateCheckoutState();
 }
 
@@ -267,7 +259,6 @@ async function submitOrder() {
   const payload = {
     notes: state.cart.notes,
     payment_method: state.cart.payment_method,
-    confirm_repeat: state.todayOrdersCount < 1 || Boolean(document.querySelector('[data-repeat-order-confirm]')?.checked),
     cutlery: Boolean(state.extras.cutlery),
     cutlery_price: Number(state.settings?.cutlery_price || 0),
     items: Object.values(state.cart.items).map((item) => ({ menu_item_id: item.id, qty: item.qty })),
@@ -314,7 +305,6 @@ async function init() {
   await loadTodayOrdersInfo();
   renderCart();
 
-  document.querySelector('[data-repeat-order-confirm]')?.addEventListener('change', updateCheckoutState);
   document.querySelector('[data-checkout-btn]').addEventListener('click', submitOrder);
 }
 

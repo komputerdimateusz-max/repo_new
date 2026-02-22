@@ -215,16 +215,6 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     if not payload.items:
         raise HTTPException(status_code=422, detail="Order items are required.")
 
-    today_start, today_end = today_window_local()
-    todays_order_count = db.scalar(
-        select(Order.id)
-        .join(Customer, Customer.id == Order.customer_id)
-        .where(Customer.user_id == customer.user_id)
-        .where(Order.created_at >= today_start, Order.created_at < today_end)
-    )
-    if todays_order_count is not None and not payload.confirm_repeat:
-        raise HTTPException(status_code=409, detail="Masz już zamówienie dzisiaj. Potwierdź złożenie kolejnego.")
-
     subtotal = Decimal("0.00")
     order_items: list[OrderItem] = []
     for line in payload.items:

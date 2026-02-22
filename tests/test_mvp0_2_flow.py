@@ -293,7 +293,7 @@ def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
     assert f'#{created_id}' in restaurant_today_page.text
 
 
-def test_repeat_order_requires_confirmation_flag() -> None:
+def test_repeat_order_allows_multiple_orders_without_confirmation() -> None:
     allow_orders_now()
 
     username = f"repeat_{uuid4().hex[:8]}"
@@ -316,11 +316,7 @@ def test_repeat_order_requires_confirmation_flag() -> None:
     assert first_order.status_code == 200
 
     second_without_confirm = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
-    assert second_without_confirm.status_code == 409
-    assert second_without_confirm.json()['detail'] == 'Masz już zamówienie dzisiaj. Potwierdź złożenie kolejnego.'
-
-    second_with_confirm = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'confirm_repeat': True, 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
-    assert second_with_confirm.status_code == 200
+    assert second_without_confirm.status_code == 200
 
     my_today = client.get('/api/v1/orders/me/today')
     assert my_today.status_code == 200
