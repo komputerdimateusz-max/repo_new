@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import html
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -17,6 +18,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import Company, Customer, DailySpecial, MenuItem, Order, OrderItem, RestaurantSetting, User
+from app.services.audit_service import log_action
+from app.services.security_guards import ensure_allowed_order_date, ensure_before_cutoff, ensure_can_access_order, ensure_role
 from app.schemas.mvp import (
     AdminSettingsUpdateRequest,
     CompanyRead,
@@ -91,6 +94,16 @@ def _parse_basic_auth_header(request: Request) -> tuple[str, str] | None:
 def _require_admin(request: Request) -> None:
     if request.session.get("role") != "ADMIN":
         raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+def _current_user(request: Request, db: Session) -> User:
+    user_id = request.session.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user = db.get(User, int(user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
 
 
 @router.get("/settings", response_model=SettingsResponse)
@@ -200,8 +213,11 @@ def menu_today(category: str | None = Query(default=None), db: Session = Depends
 def create_order(payload: OrderCreateRequest, request: Request, db: Session = Depends(get_db)) -> OrderCreateResponse:
     app_settings = _get_settings(db)
     now = _now_server()
-    if _is_after_cutoff(now, app_settings.cut_off_time):
-        raise HTTPException(status_code=403, detail="Orders for today are closed.")
+    user = _current_user(request, db)
+    ensure_role(user, {"CUSTOMER", "ADMIN"})
+
+    target_date = payload.order_date or now.date()
+    ensure_allowed_order_date(target_date, now, app_settings.cut_off_time)
 
     customer = _require_customer(request, db)
     if customer.company_id is None:
@@ -221,6 +237,8 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         item = db.get(MenuItem, line.menu_item_id)
         if item is None or not item.is_active:
             raise HTTPException(status_code=404, detail=f"Menu item {line.menu_item_id} not available")
+        if int(line.qty) < 1:
+            raise HTTPException(status_code=422, detail="Quantity must be a positive integer.")
         subtotal += item.price * line.qty
         order_items.append(
             OrderItem(
@@ -235,11 +253,13 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     cutlery_price = app_settings.cutlery_price
     extras_total = cutlery_price if payload.cutlery else Decimal("0.00")
     total = subtotal + app_settings.delivery_fee + extras_total
+    if total < Decimal("0.00"):
+        raise HTTPException(status_code=422, detail="Computed order total is invalid.")
     order = Order(
         customer_id=customer.id,
         company_id=customer.company_id,
         status="NEW",
-        notes=payload.notes,
+        notes=html.escape(payload.notes.strip()) if payload.notes else None,
         payment_method=payload.payment_method,
         subtotal_amount=subtotal,
         delivery_fee=app_settings.delivery_fee,
@@ -250,6 +270,18 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     )
     order.items = order_items
     db.add(order)
+    log_action(
+        db,
+        actor=user,
+        action_type="CREATE_ORDER",
+        before_snapshot=None,
+        after_snapshot={
+            "payment_method": order.payment_method,
+            "total_amount": str(total),
+            "item_count": len(order_items),
+            "order_date": target_date.isoformat(),
+        },
+    )
     try:
         db.commit()
     except Exception:
@@ -292,6 +324,36 @@ def my_today_orders(request: Request, db: Session = Depends(get_db)) -> list[Ord
         .order_by(Order.created_at.desc())
     ).unique().scalars().all()
     return [_serialize_order(order) for order in orders]
+
+
+@router.get("/orders/{order_id}", response_model=OrderTodayRead)
+def get_order(order_id: int, request: Request, db: Session = Depends(get_db)) -> OrderTodayRead:
+    user = _current_user(request, db)
+    order = db.execute(
+        select(Order)
+        .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
+        .where(Order.id == order_id)
+    ).unique().scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    ensure_can_access_order(user, order, db)
+    return _serialize_order(order)
+
+
+@router.delete("/orders/{order_id}")
+def cancel_order(order_id: int, request: Request, db: Session = Depends(get_db)) -> dict:
+    user = _current_user(request, db)
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    ensure_can_access_order(user, order, db)
+    cutoff = _get_settings(db).cut_off_time
+    ensure_before_cutoff(order.created_at.astimezone().date(), _now_server(), cutoff)
+    before = {"status": order.status}
+    order.status = "CANCELLED"
+    log_action(db, actor=user, action_type="CANCEL_ORDER", order_id=order.id, before_snapshot=before, after_snapshot={"status": order.status})
+    db.commit()
+    return {"ok": True}
 
 
 def _serialize_order(order: Order) -> OrderTodayRead:
@@ -457,7 +519,8 @@ def admin_specials_delete(special_id: int, request: Request, db: Session = Depen
 
 @router.get("/admin/orders/today", response_model=list[OrderTodayRead])
 def admin_today_orders(request: Request, db: Session = Depends(get_db)) -> list[OrderTodayRead]:
-    _require_admin(request)
+    user = _current_user(request, db)
+    ensure_role(user, {"ADMIN", "RESTAURANT"})
     today_start, today_end = today_window_local()
     orders = db.execute(
         select(Order)
@@ -475,20 +538,24 @@ def admin_update_order_status(
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict:
-    _require_admin(request)
+    user = _current_user(request, db)
+    ensure_role(user, {"ADMIN", "RESTAURANT"})
     if payload.status not in ALLOWED_ORDER_STATUSES:
         raise HTTPException(status_code=422, detail="Unsupported status")
     order = db.get(Order, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found.")
+    before = {"status": order.status}
     order.status = payload.status
+    log_action(db, actor=user, action_type="STATUS_CHANGE", order_id=order.id, before_snapshot=before, after_snapshot={"status": payload.status})
     db.commit()
     return {"ok": True}
 
 
 @router.get("/admin/orders/today.csv")
 def admin_today_orders_csv(request: Request, db: Session = Depends(get_db)) -> Response:
-    _require_admin(request)
+    user = _current_user(request, db)
+    ensure_role(user, {"ADMIN", "RESTAURANT"})
     orders = admin_today_orders(request, db)
     output = StringIO()
     writer = csv.writer(output)
@@ -510,6 +577,8 @@ def admin_today_orders_csv(request: Request, db: Session = Depends(get_db)) -> R
                 order.status,
             ]
         )
+    log_action(db, actor=user, action_type="EXPORT_PDF", before_snapshot=None, after_snapshot={"kind": "csv_today"})
+    db.commit()
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
