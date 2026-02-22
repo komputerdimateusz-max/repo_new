@@ -1099,6 +1099,38 @@ def restaurant_orders_today_export_docx(request: Request):
     )
 
 
+@app.get("/orders/today/pdf_combined")
+def orders_today_pdf_combined(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    payload = _build_restaurant_today_orders_payload()
+    pdf_bytes = render_pdf_combined(payload["orders"], payload)
+    filename = f"zamowienia_{payload['today']}_zbiorczy.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/orders/today/pdf_companies_zip")
+def orders_today_pdf_companies_zip(request: Request):
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    payload = _build_restaurant_today_orders_payload()
+    zip_bytes = render_pdf_zip_per_company(payload["orders"], payload)
+    filename = f"zamowienia_{payload['today']}_firmy.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page(request: Request):
     current = _require_admin_page(request)
