@@ -57,6 +57,7 @@ class OrderItemCreate(BaseModel):
 
 
 class OrderCreateRequest(BaseModel):
+    order_date: dt_date | None = None
     notes: str | None = None
     payment_method: str
     cutlery: bool = False

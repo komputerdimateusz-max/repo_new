@@ -34,6 +34,7 @@ from app.models.user import Customer
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
 from app.services.pdf_exports import render_pdf_combined, render_pdf_for_company, render_pdf_zip_per_company, sanitize_filename
+from app.services.audit_service import log_action
 from app.utils.pdf_fonts import register_pdf_font
 from app.utils.time import today_window_local
 
@@ -150,6 +151,13 @@ def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | i
 
 def _format_decimal_pln(value: Decimal | int | float) -> str:
     return f"{Decimal(value):.2f}"
+
+
+def _get_request_user(request: Request, db: Session) -> User | None:
+    current = _session_user(request)
+    if not current:
+        return None
+    return db.get(User, int(current["user_id"]))
 
 
 def _build_restaurant_today_orders_payload() -> dict:
@@ -992,6 +1000,9 @@ def restaurant_orders_today_export_pdf(request: Request):
         return current
 
     payload = _build_restaurant_today_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "restaurant_today_pdf"})
+        db.commit()
     font_name = register_pdf_font()
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("PdfTitle", parent=styles["Title"], fontName=font_name)
@@ -1106,6 +1117,9 @@ def orders_today_pdf_combined(request: Request):
         return current
 
     payload = _build_restaurant_today_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "restaurant_combined_pdf"})
+        db.commit()
     pdf_bytes = render_pdf_combined(payload["orders"], payload)
     filename = f"zamowienia_{payload['today']}_zbiorczy.pdf"
     return Response(
@@ -1122,6 +1136,9 @@ def orders_today_pdf_companies_zip(request: Request):
         return current
 
     payload = _build_restaurant_today_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "restaurant_companies_zip"})
+        db.commit()
     zip_bytes = render_pdf_zip_per_company(payload["orders"], payload)
     filename = f"zamowienia_{payload['today']}_firmy.zip"
     return Response(
@@ -1190,6 +1207,9 @@ def admin_orders_export_combined_pdf(request: Request):
         return current
 
     payload = _build_admin_company_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "admin_combined_pdf"})
+        db.commit()
     pdf_bytes = render_pdf_combined(payload["orders"], payload)
     filename = f"Raport_zamowien_{payload['today']}_ZBIORCZY.pdf"
     return Response(
@@ -1208,6 +1228,9 @@ def admin_orders_export_companies_zip(request: Request):
         return current
 
     payload = _build_admin_company_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "admin_companies_zip"})
+        db.commit()
     zip_bytes = render_pdf_zip_per_company(payload["orders"], payload)
     filename = f"Raport_zamowien_{payload['today']}_FIRMY.zip"
     return Response(
@@ -1226,6 +1249,9 @@ def admin_orders_export_single_company_pdf(request: Request, company: str = ""):
         return current
 
     payload = _build_admin_company_orders_payload()
+    with SessionLocal() as db:
+        log_action(db, actor=_get_request_user(request, db), action_type="EXPORT_PDF", after_snapshot={"scope": "admin_single_company_pdf", "company": company})
+        db.commit()
     selected = company.strip().lower()
     company_key = None
     for order in payload["orders"]:
