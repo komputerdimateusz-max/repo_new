@@ -1,9 +1,9 @@
 """Order models for same-day customer orders."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -17,6 +17,11 @@ class Order(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    order_date: Mapped[date] = mapped_column(Date, nullable=False, default=lambda: datetime.now(timezone.utc).date())
+    order_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    order_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    customer_edit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -35,6 +40,12 @@ class Order(Base):
     customer: Mapped["Customer"] = relationship(back_populates="orders")
     company: Mapped["Company"] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("uq_orders_customer_date_fingerprint", "customer_id", "order_date", "order_fingerprint", unique=True),
+        Index("uq_orders_order_number", "order_number", unique=True),
+        Index("uq_orders_order_date_seq", "order_date", "order_seq", unique=True),
+    )
 
 
 class OrderItem(Base):

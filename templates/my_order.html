@@ -25,7 +25,7 @@
             ? `Tak (+${money(order.cutlery_price)})`
             : 'Nie';
           return `<section style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0;">
-            <h2 style="margin:0 0 8px;">#${order.order_id}</h2>
+            <h2 style="margin:0 0 8px;">Nr zamówienia: ${order.order_number || '-'} <small>(#${order.order_id})</small></h2>
             <p style="margin:4px 0;"><strong>Godzina:</strong> ${orderTime(order.created_at)}</p>
             <p style="margin:4px 0;"><strong>Status:</strong> ${order.status}</p>
             <p style="margin:4px 0;"><strong>Płatność:</strong> ${order.payment_method}</p>

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import html
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
@@ -47,6 +49,28 @@ logger = logging.getLogger(__name__)
 
 MENU_CATEGORIES = ["Dania dnia", "Zupy", "Drugie", "Fit", "Napoje", "Dodatki"]
 ALLOWED_ORDER_STATUSES = {"NEW", "CONFIRMED", "CANCELLED"}
+
+
+IDEMPOTENCY_WINDOW_SECONDS = 30
+def _build_order_fingerprint(*, user_id: int, order_date: date, items: list[tuple[int, int]], location_id: int | None = None) -> str:
+    payload = {
+        "user_id": user_id,
+        "order_date": order_date.isoformat(),
+        "location_id": location_id,
+        "items": [
+            {"item_id": item_id, "qty": qty}
+            for item_id, qty in sorted(items, key=lambda pair: (pair[0], pair[1]))
+        ],
+    }
+    canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _next_order_sequence(db: Session, target_date: date) -> tuple[int, str]:
+    max_seq = db.scalar(select(func.max(Order.order_seq)).where(Order.order_date == target_date))
+    next_seq = int(max_seq or 0) + 1
+    order_number = f"{target_date.strftime('%Y%m%d')}-{next_seq:03d}"
+    return next_seq, order_number
 
 
 def _now_server() -> datetime:
@@ -233,6 +257,7 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
 
     subtotal = Decimal("0.00")
     order_items: list[OrderItem] = []
+    fingerprint_items: list[tuple[int, int]] = []
     for line in payload.items:
         item = db.get(MenuItem, line.menu_item_id)
         if item is None or not item.is_active:
@@ -240,6 +265,7 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         if int(line.qty) < 1:
             raise HTTPException(status_code=422, detail="Quantity must be a positive integer.")
         subtotal += item.price * line.qty
+        fingerprint_items.append((item.id, int(line.qty)))
         order_items.append(
             OrderItem(
                 menu_item_id=item.id,
@@ -250,14 +276,72 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
             )
         )
 
+    fingerprint = _build_order_fingerprint(
+        user_id=int(user.id),
+        order_date=target_date,
+        items=fingerprint_items,
+        location_id=None,
+    )
+    duplicate_since = now - timedelta(seconds=IDEMPOTENCY_WINDOW_SECONDS)
+    duplicate_order = db.scalar(
+        select(Order)
+        .where(
+            Order.customer_id == customer.id,
+            Order.order_date == target_date,
+            Order.order_fingerprint == fingerprint,
+            Order.created_at >= duplicate_since,
+        )
+        .order_by(Order.created_at.desc())
+        .limit(1)
+    )
+    if duplicate_order is not None:
+        log_action(
+            db,
+            actor=user,
+            action_type="CREATE_ORDER_DUPLICATE",
+            order_id=duplicate_order.id,
+            before_snapshot=None,
+            after_snapshot={
+                "order_date": target_date.isoformat(),
+                "order_fingerprint": fingerprint,
+                "idempotency_window_seconds": IDEMPOTENCY_WINDOW_SECONDS,
+            },
+        )
+        db.commit()
+        return OrderCreateResponse(
+            order_id=duplicate_order.id,
+            order_number=duplicate_order.order_number,
+            message="Zamówienie już zostało utworzone",
+            status=duplicate_order.status,
+            subtotal_amount=duplicate_order.subtotal_amount,
+            delivery_fee=duplicate_order.delivery_fee,
+            cutlery=duplicate_order.cutlery,
+            cutlery_price=duplicate_order.cutlery_price,
+            extras_total=duplicate_order.extras_total,
+            total_amount=duplicate_order.total_amount,
+            delivery_window_start=app_settings.delivery_window_start,
+            delivery_window_end=app_settings.delivery_window_end,
+            payment_method=duplicate_order.payment_method,
+            created_at=duplicate_order.created_at,
+            items=[
+                OrderTodayItemRead(menu_item_id=i.menu_item_id, qty=i.qty, price_snapshot=i.price_snapshot, name=i.name)
+                for i in duplicate_order.items
+            ],
+        )
+
     cutlery_price = app_settings.cutlery_price
     extras_total = cutlery_price if payload.cutlery else Decimal("0.00")
     total = subtotal + app_settings.delivery_fee + extras_total
     if total < Decimal("0.00"):
         raise HTTPException(status_code=422, detail="Computed order total is invalid.")
+    order_seq, order_number = _next_order_sequence(db, target_date)
     order = Order(
         customer_id=customer.id,
         company_id=customer.company_id,
+        order_date=target_date,
+        order_fingerprint=fingerprint,
+        order_seq=order_seq,
+        order_number=order_number,
         status="NEW",
         notes=html.escape(payload.notes.strip()) if payload.notes else None,
         payment_method=payload.payment_method,
@@ -280,6 +364,8 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
             "total_amount": str(total),
             "item_count": len(order_items),
             "order_date": target_date.isoformat(),
+            "order_number": order_number,
+            "order_fingerprint": fingerprint,
         },
     )
     try:
@@ -289,10 +375,11 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
         logger.exception("[ORDER] failed to create order for user_id=%s", customer.user_id)
         raise HTTPException(status_code=500, detail="Could not save order.")
     db.refresh(order)
-    logger.info("[ORDER] created id=%s, created_at=%s, user_id=%s", order.id, order.created_at.isoformat(), customer.user_id)
+    logger.info("[ORDER] created id=%s, order_number=%s, created_at=%s, user_id=%s", order.id, order.order_number, order.created_at.isoformat(), customer.user_id)
 
     return OrderCreateResponse(
         order_id=order.id,
+        order_number=order.order_number,
         status=order.status,
         subtotal_amount=order.subtotal_amount,
         delivery_fee=order.delivery_fee,
@@ -359,6 +446,7 @@ def cancel_order(order_id: int, request: Request, db: Session = Depends(get_db))
 def _serialize_order(order: Order) -> OrderTodayRead:
     return OrderTodayRead(
         order_id=order.id,
+        order_number=order.order_number,
         company_id=order.company_id,
         company_name=order.company.name if order.company else None,
         customer_email=order.customer.email,
@@ -559,12 +647,13 @@ def admin_today_orders_csv(request: Request, db: Session = Depends(get_db)) -> R
     orders = admin_today_orders(request, db)
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["order_id", "time", "company", "customer_email", "items", "notes", "payment", "subtotal", "delivery_fee", "total", "status"])
+    writer.writerow(["order_id", "order_number", "time", "company", "customer_email", "items", "notes", "payment", "subtotal", "delivery_fee", "total", "status"])
     for order in orders:
         item_summary = "; ".join(f"{item.name or item.menu_item_id} x{item.qty}" for item in order.items)
         writer.writerow(
             [
                 order.order_id,
+                order.order_number or "",
                 order.created_at.isoformat(),
                 order.company_name or order.company_id,
                 order.customer_email,

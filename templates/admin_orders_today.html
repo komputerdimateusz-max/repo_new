@@ -16,7 +16,7 @@
 
   <table border="1">
     <thead>
-      <tr><th>time</th><th>company</th><th>customer</th><th>items</th><th>notes</th><th>payment</th><th>totals</th><th>status</th><th>actions</th></tr>
+      <tr><th>nr</th><th>time</th><th>company</th><th>customer</th><th>items</th><th>notes</th><th>payment</th><th>totals</th><th>status</th><th>actions</th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
@@ -38,7 +38,7 @@ function downloadSelectedCompanyPdf(){
 async function load(){
   const data=await fetch('/api/v1/admin/orders/today').then(r=>r.json());
   populateCompanySelect(data);
-  document.getElementById('rows').innerHTML=data.map(o=>`<tr><td>${o.created_at}</td><td>${o.company_name || o.company_id}</td><td>${o.customer_email}</td><td>${o.items.map(i=>`${i.name || i.menu_item_id} x${i.qty}`).join(', ')}</td><td>${o.notes||''}</td><td>${o.payment_method}</td><td>${money(o.subtotal_amount)} + ${money(o.delivery_fee)} = ${money(o.total_amount)}</td><td>${o.status}</td><td><button onclick="setStatus(${o.order_id},'CONFIRMED')">Confirm</button><button onclick="setStatus(${o.order_id},'CANCELLED')">Cancel</button></td></tr>`).join('');
+  document.getElementById('rows').innerHTML=data.map(o=>`<tr><td>${o.order_number || '-'}<br><small>#${o.order_id}</small></td><td>${o.created_at}</td><td>${o.company_name || o.company_id}</td><td>${o.customer_email}</td><td>${o.items.map(i=>`${i.name || i.menu_item_id} x${i.qty}`).join(', ')}</td><td>${o.notes||''}</td><td>${o.payment_method}</td><td>${money(o.subtotal_amount)} + ${money(o.delivery_fee)} = ${money(o.total_amount)}</td><td>${o.status}</td><td><button onclick="setStatus(${o.order_id},'CONFIRMED')">Confirm</button><button onclick="setStatus(${o.order_id},'CANCELLED')">Cancel</button></td></tr>`).join('');
 }
 async function setStatus(id,status){await fetch('/api/v1/admin/orders/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load();}
 load();

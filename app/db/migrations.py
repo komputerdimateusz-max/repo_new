@@ -389,6 +389,17 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 text("UPDATE orders SET restaurant_id = :restaurant_id WHERE restaurant_id IS NULL"),
                 {"restaurant_id": default_restaurant_id},
             )
+            if "order_date" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN order_date DATE"))
+                connection.execute(text("UPDATE orders SET order_date = date(created_at) WHERE order_date IS NULL"))
+            if "order_fingerprint" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN order_fingerprint VARCHAR(64)"))
+            if "order_seq" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN order_seq INTEGER"))
+            if "order_number" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN order_number VARCHAR(16)"))
+            if "customer_edit_count" not in orders_columns:
+                connection.execute(text("ALTER TABLE orders ADD COLUMN customer_edit_count INTEGER NOT NULL DEFAULT 0"))
             if "status" not in orders_columns:
                 connection.execute(text("ALTER TABLE orders ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'pending'"))
             connection.execute(text("UPDATE orders SET status = 'pending' WHERE status IS NULL OR status = 'created'"))
@@ -402,6 +413,30 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE orders ADD COLUMN delivered_at DATETIME"))
             if "cancelled_at" not in orders_columns:
                 connection.execute(text("ALTER TABLE orders ADD COLUMN cancelled_at DATETIME"))
+
+            order_indexes = _sqlite_index_names(connection, "orders")
+            if "uq_orders_customer_date_fingerprint" not in order_indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_customer_date_fingerprint "
+                        "ON orders(customer_id, order_date, order_fingerprint) "
+                        "WHERE order_fingerprint IS NOT NULL"
+                    )
+                )
+            if "uq_orders_order_number" not in order_indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_order_number "
+                        "ON orders(order_number) WHERE order_number IS NOT NULL"
+                    )
+                )
+            if "uq_orders_order_date_seq" not in order_indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_order_date_seq "
+                        "ON orders(order_date, order_seq) WHERE order_date IS NOT NULL AND order_seq IS NOT NULL"
+                    )
+                )
 
         if "order_items" in table_names:
             order_items_columns = _sqlite_column_names(connection, "order_items")
