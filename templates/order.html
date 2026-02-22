@@ -82,14 +82,8 @@
       </dl>
 
       <button type="button" class="checkout-btn" data-checkout-btn {% if company_required %}disabled{% endif %}>Zamawiam i płacę</button>
-      <div data-repeat-order-warning hidden style="background:#fff4e5;color:#9a3412;padding:10px;border-radius:8px;margin-bottom:10px;font-weight:600;"></div>
-      <div data-repeat-order-confirm-wrap hidden style="margin-bottom:10px;">
-        <label for="repeat-order-confirm" style="display:flex;gap:8px;align-items:flex-start;">
-          <input id="repeat-order-confirm" type="checkbox" data-repeat-order-confirm />
-          <span>To jest kolejne zamówienie dzisiaj – rozumiem</span>
-        </label>
-      </div>
-      <a href="/my-orders-today">Moje zamówienia (dziś)</a>
+      <div data-repeat-order-warning hidden style="background:#eff8ff;color:#1849a9;padding:10px;border-radius:8px;margin-bottom:10px;"></div>
+      <a href="/my-orders-today" style="font-weight:700;">Moje zamówienia (dziś)</a>
       <div data-my-orders></div>
       <p class="cart-footnote">To zamówienie zostanie zrealizowane dzisiaj.</p>
     </aside>
