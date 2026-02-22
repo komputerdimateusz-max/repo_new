@@ -3,6 +3,11 @@
   <body>
     <h1>Zamówienia na dziś</h1>
     <p><a href="/restaurant">Powrót do panelu restauracji</a></p>
+    <p>
+      <a href="/restaurant/orders/today/export.pdf">Pobierz PDF</a>
+      |
+      <a href="/restaurant/orders/today/export.docx">Pobierz Word</a>
+    </p>
 
     {% if not orders %}
       <p>Brak zamówień na dziś.</p>
