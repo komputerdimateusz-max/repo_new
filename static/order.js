@@ -8,6 +8,7 @@ const state = {
   menu: { categories: [], active_category: null, items: [] },
   cart: loadCart(),
   extras: loadExtras(),
+  todayOrdersCount: 0,
 };
 
 function loadCart() {
@@ -148,6 +149,35 @@ function renderMenu() {
   }
 }
 
+function updateCheckoutState() {
+  const entries = Object.values(state.cart.items);
+  const hasCompany = Boolean(state.me?.company_id);
+  const needsRepeatConfirmation = state.todayOrdersCount >= 1;
+  const repeatConfirmCheckbox = document.querySelector('[data-repeat-order-confirm]');
+  const repeatConfirmed = !needsRepeatConfirmation || Boolean(repeatConfirmCheckbox?.checked);
+  document.querySelector('[data-company-required-banner]').hidden = hasCompany;
+  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0 || !hasCompany || !repeatConfirmed;
+}
+
+function renderRepeatOrderWarning() {
+  const warning = document.querySelector('[data-repeat-order-warning]');
+  const confirmWrap = document.querySelector('[data-repeat-order-confirm-wrap]');
+  const checkbox = document.querySelector('[data-repeat-order-confirm]');
+
+  if (state.todayOrdersCount < 1) {
+    warning.hidden = true;
+    confirmWrap.hidden = true;
+    if (checkbox) checkbox.checked = false;
+    updateCheckoutState();
+    return;
+  }
+
+  warning.hidden = false;
+  confirmWrap.hidden = false;
+  warning.innerHTML = `Uwaga: masz już ${state.todayOrdersCount} zamówienie/a dzisiaj. Kliknij <a href="/my-orders-today">Moje zamówienia (dziś)</a> aby sprawdzić.`;
+  updateCheckoutState();
+}
+
 function renderCart() {
   const list = document.querySelector('[data-cart-list]');
   const entries = Object.values(state.cart.items);
@@ -189,9 +219,7 @@ function renderCart() {
   document.querySelector('[data-summary-window]').textContent = `${state.settings?.delivery_window_start || '--:--'}–${state.settings?.delivery_window_end || '--:--'}`;
   document.querySelector('[data-summary-total]').textContent = formatMoney(subtotal + delivery + extrasTotal);
 
-  const hasCompany = Boolean(state.me?.company_id);
-  document.querySelector('[data-company-required-banner]').hidden = hasCompany;
-  document.querySelector('[data-checkout-btn]').disabled = entries.length === 0 || !hasCompany;
+  updateCheckoutState();
 }
 
 function wireSidebarInputs() {
@@ -239,6 +267,7 @@ async function submitOrder() {
   const payload = {
     notes: state.cart.notes,
     payment_method: state.cart.payment_method,
+    confirm_repeat: state.todayOrdersCount < 1 || Boolean(document.querySelector('[data-repeat-order-confirm]')?.checked),
     cutlery: Boolean(state.extras.cutlery),
     cutlery_price: Number(state.settings?.cutlery_price || 0),
     items: Object.values(state.cart.items).map((item) => ({ menu_item_id: item.id, qty: item.qty })),
@@ -257,12 +286,19 @@ async function submitOrder() {
     });
     setMessage(`Zamówienie przyjęte #${response.order_id}`);
     clearCart();
+    await loadTodayOrdersInfo();
     renderMenu();
     renderCart();
     wireSidebarInputs();
   } catch (error) {
     setMessage(error.detail || 'Nie udało się złożyć zamówienia.', true);
   }
+}
+
+async function loadTodayOrdersInfo() {
+  const todayOrders = await fetchJson('/api/v1/orders/me/today');
+  state.todayOrdersCount = Array.isArray(todayOrders) ? todayOrders.length : 0;
+  renderRepeatOrderWarning();
 }
 
 async function init() {
@@ -275,8 +311,10 @@ async function init() {
 
   wireSidebarInputs();
   await loadMenu();
+  await loadTodayOrdersInfo();
   renderCart();
 
+  document.querySelector('[data-repeat-order-confirm]')?.addEventListener('change', updateCheckoutState);
   document.querySelector('[data-checkout-btn]').addEventListener('click', submitOrder);
 }
 

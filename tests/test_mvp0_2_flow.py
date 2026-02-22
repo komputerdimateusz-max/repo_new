@@ -57,7 +57,7 @@ def test_me_update_and_order_flow() -> None:
 
     menu = client.get('/api/v1/menu/today').json()
     first_item_id = menu['items'][0]['id']
-    order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'confirm_repeat': True, 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
     assert order.status_code == 200
 
 
@@ -81,7 +81,7 @@ def test_order_requires_company_selection_message() -> None:
     client.patch('/api/v1/me', json={'name': 'Pilot User', 'postal_code': '66-400', 'company_id': None})
     menu = client.get('/api/v1/menu/today').json()
     first_item_id = menu['items'][0]['id']
-    order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'confirm_repeat': True, 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
 
     assert order.status_code == 400
     assert order.json()['detail'] == 'Select company in profile first.'
@@ -120,6 +120,7 @@ def test_cutlery_addon_settings_and_order_totals() -> None:
         '/api/v1/orders',
         json={
             'payment_method': 'BLIK',
+            'confirm_repeat': True,
             'cutlery': True,
             'cutlery_price': 999,
             'items': [{'menu_item_id': first_item_id, 'qty': 1}],
@@ -136,6 +137,7 @@ def test_cutlery_addon_settings_and_order_totals() -> None:
         '/api/v1/orders',
         json={
             'payment_method': 'BLIK',
+            'confirm_repeat': True,
             'cutlery': False,
             'cutlery_price': 1.5,
             'items': [{'menu_item_id': first_item_id, 'qty': 1}],
@@ -190,6 +192,7 @@ def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
         '/api/v1/orders',
         json={
             'payment_method': 'BLIK',
+            'confirm_repeat': True,
             'notes': 'A',
             'cutlery': True,
             'items': [{'menu_item_id': item1['id'], 'qty': 2}],
@@ -201,6 +204,7 @@ def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
         '/api/v1/orders',
         json={
             'payment_method': 'BLIK',
+            'confirm_repeat': True,
             'notes': 'B',
             'cutlery': False,
             'items': [{'menu_item_id': item1['id'], 'qty': 1}, {'menu_item_id': item2['id'], 'qty': 1}],
@@ -245,7 +249,7 @@ def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
 
     menu = client.get('/api/v1/menu/today').json()
     first_item_id = menu['items'][0]['id']
-    create = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    create = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'confirm_repeat': True, 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
     assert create.status_code == 200
     created_id = create.json()['order_id']
 
@@ -264,8 +268,8 @@ def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
     my_today = client.get('/api/v1/orders/me/today')
     assert my_today.status_code == 200
     my_today_payload = my_today.json()
-    assert my_today_payload is not None
-    assert my_today_payload['order_id'] == created_id
+    assert isinstance(my_today_payload, list)
+    assert any(order['order_id'] == created_id for order in my_today_payload)
 
     with SessionLocal() as db:
         restaurant_user = db.query(User).filter(User.username == 'restaurant_debug').first()
@@ -287,3 +291,39 @@ def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
     restaurant_today_page = client.get('/restaurant/orders/today')
     assert restaurant_today_page.status_code == 200
     assert f'#{created_id}' in restaurant_today_page.text
+
+
+def test_repeat_order_requires_confirmation_flag() -> None:
+    allow_orders_now()
+
+    username = f"repeat_{uuid4().hex[:8]}"
+    with SessionLocal() as db:
+        db.add(User(username=username, password_hash=get_password_hash('pass123'), role='CUSTOMER', is_active=True))
+        db.commit()
+
+    login = client.post('/login', data={'username': username, 'password': 'pass123'}, follow_redirects=False)
+    assert login.status_code == 303
+
+    companies = client.get('/api/v1/companies').json()
+    company_id = companies[0]['id']
+    profile_update = client.patch('/api/v1/me', json={'name': 'Repeat User', 'postal_code': '66-400', 'company_id': company_id})
+    assert profile_update.status_code == 200
+
+    menu = client.get('/api/v1/menu/today').json()
+    first_item_id = menu['items'][0]['id']
+
+    first_order = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    assert first_order.status_code == 200
+
+    second_without_confirm = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    assert second_without_confirm.status_code == 409
+    assert second_without_confirm.json()['detail'] == 'Masz już zamówienie dzisiaj. Potwierdź złożenie kolejnego.'
+
+    second_with_confirm = client.post('/api/v1/orders', json={'payment_method': 'BLIK', 'confirm_repeat': True, 'items': [{'menu_item_id': first_item_id, 'qty': 1}]})
+    assert second_with_confirm.status_code == 200
+
+    my_today = client.get('/api/v1/orders/me/today')
+    assert my_today.status_code == 200
+    orders = my_today.json()
+    assert isinstance(orders, list)
+    assert len(orders) == 2

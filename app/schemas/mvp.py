@@ -59,6 +59,7 @@ class OrderItemCreate(BaseModel):
 class OrderCreateRequest(BaseModel):
     notes: str | None = None
     payment_method: str
+    confirm_repeat: bool = False
     cutlery: bool = False
     cutlery_price: Decimal = Decimal("0.00")
     items: list[OrderItemCreate]
