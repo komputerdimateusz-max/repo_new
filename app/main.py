@@ -33,6 +33,7 @@ from app.models import Company, MenuItem, Order, RestaurantSetting, User
 from app.models.user import Customer
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
+from app.services.pdf_exports import render_pdf_combined, render_pdf_for_company, render_pdf_zip_per_company, sanitize_filename
 from app.utils.pdf_fonts import register_pdf_font
 from app.utils.time import today_window_local
 
@@ -216,6 +217,28 @@ def _build_restaurant_today_orders_payload() -> dict:
         "summary_rows": summary_rows,
         "orders": serialized_orders,
     }
+
+
+def _build_admin_company_orders_payload() -> dict:
+    """Prepare order shape expected by grouped PDF export functions."""
+    payload = _build_restaurant_today_orders_payload()
+    shaped_orders: list[dict] = []
+    for order in payload["orders"]:
+        shaped_orders.append(
+            {
+                "id": order["id"],
+                "time": order["time"],
+                "company_name": order.get("company_name") or "Brak firmy",
+                "company_address": order.get("company_address") or "",
+                "company_zip": order.get("company_zip") or "",
+                "user_name": order.get("customer_identifier") or "-",
+                "payment_status": order.get("payment_status") or "-",
+                "notes": order.get("notes"),
+                "order_lines": order.get("order_lines") or [],
+                "total_amount": order.get("total_amount") or Decimal("0.00"),
+            }
+        )
+    return {"today": payload["today"], "generated_at": payload["generated_at"], "orders": shaped_orders}
 
 
 def _forbidden_page(request: Request) -> HTMLResponse:
@@ -1124,6 +1147,73 @@ def admin_orders_csv_redirect(request: Request):
     if isinstance(current, HTMLResponse):
         return current
     return RedirectResponse(url="/api/v1/admin/orders/today.csv", status_code=307)
+
+
+@app.get("/admin/orders/today/export/combined.pdf")
+def admin_orders_export_combined_pdf(request: Request):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+
+    payload = _build_admin_company_orders_payload()
+    pdf_bytes = render_pdf_combined(payload["orders"], payload)
+    filename = f"Raport_zamowien_{payload['today']}_ZBIORCZY.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/admin/orders/today/export/companies.zip")
+def admin_orders_export_companies_zip(request: Request):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+
+    payload = _build_admin_company_orders_payload()
+    zip_bytes = render_pdf_zip_per_company(payload["orders"], payload)
+    filename = f"Raport_zamowien_{payload['today']}_FIRMY.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/admin/orders/today/export/company.pdf")
+def admin_orders_export_single_company_pdf(request: Request, company: str = ""):
+    current = _require_admin_page(request)
+    if isinstance(current, RedirectResponse):
+        return current
+    if isinstance(current, HTMLResponse):
+        return current
+
+    payload = _build_admin_company_orders_payload()
+    selected = company.strip().lower()
+    company_key = None
+    for order in payload["orders"]:
+        maybe = (order.get("company_name") or "Brak firmy", order.get("company_address") or "", order.get("company_zip") or "")
+        if maybe[0].lower() == selected:
+            company_key = maybe
+            break
+    if company_key is None and payload["orders"]:
+        first = payload["orders"][0]
+        company_key = (first.get("company_name") or "Brak firmy", first.get("company_address") or "", first.get("company_zip") or "")
+    if company_key is None:
+        company_key = ("Brak firmy", "", "")
+
+    pdf_bytes = render_pdf_for_company(payload["orders"], company_key, payload)
+    filename = f"Raport_zamowien_{payload['today']}_{sanitize_filename(company_key[0])}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 @app.get("/__debug/routes", include_in_schema=False, response_class=PlainTextResponse)
 def debug_routes() -> PlainTextResponse:
     lines = []
