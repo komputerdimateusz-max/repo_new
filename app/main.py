@@ -502,6 +502,7 @@ async def profile_submit(request: Request):
     return RedirectResponse(url="/profile?message=Zapisano", status_code=303)
 
 
+@app.get("/my-orders-today", response_class=HTMLResponse)
 @app.get("/my-order", response_class=HTMLResponse)
 def my_order_page(request: Request):
     current = _require_role_page(request, {"CUSTOMER"})

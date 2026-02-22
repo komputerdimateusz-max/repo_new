@@ -215,6 +215,16 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     if not payload.items:
         raise HTTPException(status_code=422, detail="Order items are required.")
 
+    today_start, today_end = today_window_local()
+    todays_order_count = db.scalar(
+        select(Order.id)
+        .join(Customer, Customer.id == Order.customer_id)
+        .where(Customer.user_id == customer.user_id)
+        .where(Order.created_at >= today_start, Order.created_at < today_end)
+    )
+    if todays_order_count is not None and not payload.confirm_repeat:
+        raise HTTPException(status_code=409, detail="Masz już zamówienie dzisiaj. Potwierdź złożenie kolejnego.")
+
     subtotal = Decimal("0.00")
     order_items: list[OrderItem] = []
     for line in payload.items:
@@ -279,22 +289,19 @@ def create_order(payload: OrderCreateRequest, request: Request, db: Session = De
     )
 
 
-@router.get("/orders/me/today", response_model=OrderTodayRead | None)
-def my_today_latest_order(request: Request, db: Session = Depends(get_db)) -> OrderTodayRead | None:
+@router.get("/orders/me/today", response_model=list[OrderTodayRead])
+def my_today_orders(request: Request, db: Session = Depends(get_db)) -> list[OrderTodayRead]:
     customer = _require_customer(request, db)
     today_start, today_end = today_window_local()
-    order = db.execute(
+    orders = db.execute(
         select(Order)
         .options(joinedload(Order.items).joinedload(OrderItem.menu_item), joinedload(Order.customer), joinedload(Order.company))
         .join(Customer, Customer.id == Order.customer_id)
         .where(Customer.user_id == customer.user_id)
         .where(Order.created_at >= today_start, Order.created_at < today_end)
         .order_by(Order.created_at.desc())
-        .limit(1)
-    ).unique().scalar_one_or_none()
-    if order is None:
-        return None
-    return _serialize_order(order)
+    ).unique().scalars().all()
+    return [_serialize_order(order) for order in orders]
 
 
 def _serialize_order(order: Order) -> OrderTodayRead:

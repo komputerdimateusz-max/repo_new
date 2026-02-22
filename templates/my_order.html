@@ -1,22 +1,44 @@
 <!doctype html>
 <html lang="pl">
   <body>
-    <h1>Moje zamówienie (dziś)</h1>
+    <h1>Moje zamówienia (dziś)</h1>
     <a href="/">Powrót</a>
     <div id="content">Ładowanie...</div>
     <script>
       function money(v) { return `${Number(v).toFixed(2).replace('.', ',')} zł`; }
+      function orderTime(isoValue) {
+        const dt = new Date(isoValue);
+        return dt.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+      }
+
       async function load() {
-        const order = await fetch('/api/v1/orders/me/today').then(r => r.json());
+        const orders = await fetch('/api/v1/orders/me/today').then(r => r.json());
         const el = document.getElementById('content');
-        if (!order) {
-          el.textContent = 'Brak dzisiejszego zamówienia.';
+        if (!Array.isArray(orders) || orders.length === 0) {
+          el.textContent = 'Brak dzisiejszych zamówień.';
           return;
         }
-        el.innerHTML = `<p>#${order.order_id} | ${order.status}</p>
-          <p>Suma: ${money(order.subtotal_amount)} + dostawa ${money(order.delivery_fee)} = <strong>${money(order.total_amount)}</strong></p>
-          <p>Płatność: ${order.payment_method}</p>
-          <ul>${order.items.map(i => `<li>${i.name || i.menu_item_id} x ${i.qty}</li>`).join('')}</ul>`;
+
+        el.innerHTML = orders.map(order => {
+          const notes = order.notes && order.notes.trim() ? order.notes : '-';
+          const cutleryLabel = order.cutlery
+            ? `Tak (+${money(order.cutlery_price)})`
+            : 'Nie';
+          return `<section style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0;">
+            <h2 style="margin:0 0 8px;">#${order.order_id}</h2>
+            <p style="margin:4px 0;"><strong>Godzina:</strong> ${orderTime(order.created_at)}</p>
+            <p style="margin:4px 0;"><strong>Status:</strong> ${order.status}</p>
+            <p style="margin:4px 0;"><strong>Płatność:</strong> ${order.payment_method}</p>
+            <p style="margin:4px 0;"><strong>Uwagi:</strong> ${notes}</p>
+            <p style="margin:4px 0;"><strong>Sztućce:</strong> ${cutleryLabel}</p>
+            <ul>${order.items.map(i => `<li>${i.name || i.menu_item_id} x ${i.qty}</li>`).join('')}</ul>
+            <p style="margin:4px 0;">
+              <strong>Podsumowanie:</strong>
+              ${money(order.subtotal_amount)} + dostawa ${money(order.delivery_fee)} + dodatki ${money(order.extras_total)} =
+              <strong>${money(order.total_amount)}</strong>
+            </p>
+          </section>`;
+        }).join('');
       }
       load();
     </script>
