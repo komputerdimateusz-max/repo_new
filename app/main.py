@@ -33,6 +33,7 @@ from app.models import Company, MenuItem, Order, RestaurantSetting, User
 from app.models.user import Customer
 from app.models.user import normalize_user_role
 from app.services.account_service import ensure_customer_profile, ensure_default_admin
+from app.utils.pdf_fonts import register_pdf_font
 from app.utils.time import today_window_local
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -960,7 +961,7 @@ def restaurant_orders_today_page(request: Request):
 def restaurant_orders_today_export_pdf(request: Request):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
@@ -968,20 +969,26 @@ def restaurant_orders_today_export_pdf(request: Request):
         return current
 
     payload = _build_restaurant_today_orders_payload()
+    font_name = register_pdf_font()
     styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("PdfTitle", parent=styles["Title"], fontName=font_name)
+    heading_style = ParagraphStyle("PdfHeading2", parent=styles["Heading2"], fontName=font_name)
+    order_heading_style = ParagraphStyle("PdfHeading4", parent=styles["Heading4"], fontName=font_name)
+    normal_style = ParagraphStyle("PdfNormal", parent=styles["Normal"], fontName=font_name)
+
     content: list = []
-    content.append(Paragraph(f"Zamówienia na dziś — {payload['today']}", styles["Title"]))
-    content.append(Paragraph(f"Wygenerowano: {payload['generated_at']}", styles["Normal"]))
+    content.append(Paragraph(f"Zamówienia na dziś — {payload['today']}", title_style))
+    content.append(Paragraph(f"Wygenerowano: {payload['generated_at']}", normal_style))
     if payload["delivery_window"]:
-        content.append(Paragraph(f"Okno dostawy: {payload['delivery_window']}", styles["Normal"]))
+        content.append(Paragraph(f"Okno dostawy: {payload['delivery_window']}", normal_style))
     if payload["cutoff"]:
-        content.append(Paragraph(f"Cut-off: {payload['cutoff']}", styles["Normal"]))
+        content.append(Paragraph(f"Cut-off: {payload['cutoff']}", normal_style))
     content.append(Spacer(1, 12))
 
     if not payload["orders"]:
-        content.append(Paragraph("Brak zamówień na dziś.", styles["Normal"]))
+        content.append(Paragraph("Brak zamówień na dziś.", normal_style))
     else:
-        content.append(Paragraph("Podsumowanie (łącznie)", styles["Heading2"]))
+        content.append(Paragraph("Podsumowanie (Łącznie)", heading_style))
         summary_table = Table(
             [["Item", "Ilość"], *[[row["item"], str(row["qty"])] for row in payload["summary_rows"]]],
             colWidths=[360, 100],
@@ -991,22 +998,23 @@ def restaurant_orders_today_export_pdf(request: Request):
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), font_name),
+                    ("FONTNAME", (0, 1), (-1, -1), font_name),
                 ]
             )
         )
         content.append(summary_table)
         content.append(Spacer(1, 12))
-        content.append(Paragraph("Lista zamówień", styles["Heading2"]))
+        content.append(Paragraph("Lista zamówień", heading_style))
         for order in payload["orders"]:
             cutlery_text = f"Tak (+{_format_decimal_pln(order['cutlery_price'])} zł)" if order["cutlery"] else "Nie"
-            content.append(Paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}", styles["Heading4"]))
-            content.append(Paragraph(f"Klient: {order['customer_identifier']}", styles["Normal"]))
-            content.append(Paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}", styles["Normal"]))
+            content.append(Paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}", order_heading_style))
+            content.append(Paragraph(f"Klient: {order['customer_identifier']}", normal_style))
+            content.append(Paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}", normal_style))
             for item in order["order_lines"]:
-                content.append(Paragraph(f"• {item['name']} x{item['qty']} ({_format_decimal_pln(item['unit_price'])} zł)", styles["Normal"]))
-            content.append(Paragraph(f"Razem: {_format_decimal_pln(order['total_amount'])} zł", styles["Normal"]))
-            content.append(Paragraph("_" * 110, styles["Normal"]))
+                content.append(Paragraph(f"• {item['name']} x{item['qty']} ({_format_decimal_pln(item['unit_price'])} zł)", normal_style))
+            content.append(Paragraph(f"Razem: {_format_decimal_pln(order['total_amount'])} zł", normal_style))
+            content.append(Paragraph("_" * 110, normal_style))
 
     buffer = BytesIO()
     SimpleDocTemplate(buffer, pagesize=A4).build(content)
