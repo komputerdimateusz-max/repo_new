@@ -9,6 +9,8 @@ python-dotenv
 jinja2
 httpx
 python-multipart
+reportlab
+python-docx
 
 streamlit
 

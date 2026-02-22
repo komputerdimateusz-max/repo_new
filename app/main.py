@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from io import BytesIO
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, quote_plus
@@ -12,7 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -143,6 +144,77 @@ def _require_role_page(request: Request, allowed: set[str]) -> dict[str, str | i
     if str(current["role"]) not in allowed:
         return RedirectResponse(url=role_landing(str(current["role"])), status_code=303)
     return current
+
+
+def _format_decimal_pln(value: Decimal | int | float) -> str:
+    return f"{Decimal(value):.2f}"
+
+
+def _build_restaurant_today_orders_payload() -> dict:
+    today_start, today_end = today_window_local()
+    generated_at = datetime.now().astimezone()
+
+    with SessionLocal() as db:
+        app_settings = db.get(RestaurantSetting, 1)
+        today_orders = db.scalars(
+            select(Order)
+            .options(
+                joinedload(Order.items),
+                joinedload(Order.customer).joinedload(Customer.user),
+                joinedload(Order.company),
+            )
+            .where(Order.created_at >= today_start, Order.created_at < today_end)
+            .order_by(Order.created_at.desc())
+        ).unique().all()
+
+    summary: dict[str, int] = {}
+    serialized_orders: list[dict] = []
+
+    for order in today_orders:
+        company_name = "Brak firmy"
+        if order.company is not None and order.company.name:
+            company_name = order.company.name
+        elif order.customer and order.customer.company and order.customer.company.name:
+            company_name = order.customer.company.name
+
+        customer_identifier = order.customer.email
+        if order.customer and order.customer.user and order.customer.user.username:
+            customer_identifier = order.customer.user.username
+
+        lines = []
+        for item in order.items:
+            name = item.name or "Pozycja"
+            summary[name] = summary.get(name, 0) + item.qty
+            lines.append({"name": name, "qty": item.qty, "unit_price": item.unit_price})
+
+        serialized_orders.append(
+            {
+                "id": order.id,
+                "time": order.created_at.astimezone().strftime("%H:%M") if order.created_at.tzinfo else order.created_at.strftime("%H:%M"),
+                "company_name": company_name,
+                "customer_identifier": customer_identifier,
+                "notes": order.notes,
+                "cutlery": order.cutlery,
+                "cutlery_price": order.cutlery_price,
+                "order_lines": lines,
+                "total_amount": order.total_amount,
+            }
+        )
+
+    summary_rows = [{"item": name, "qty": qty} for name, qty in sorted(summary.items(), key=lambda x: x[0].lower())]
+
+    return {
+        "today": today_start.date().isoformat(),
+        "generated_at": generated_at.strftime("%Y-%m-%d %H:%M"),
+        "delivery_window": (
+            f"{app_settings.delivery_window_start}-{app_settings.delivery_window_end}"
+            if app_settings and app_settings.delivery_window_start and app_settings.delivery_window_end
+            else None
+        ),
+        "cutoff": app_settings.cut_off_time if app_settings and app_settings.cut_off_time else None,
+        "summary_rows": summary_rows,
+        "orders": serialized_orders,
+    }
 
 
 def _forbidden_page(request: Request) -> HTMLResponse:
@@ -875,64 +947,124 @@ def restaurant_orders_today_page(request: Request):
     if isinstance(current, RedirectResponse):
         return current
 
-    today_start, today_end = today_window_local()
-
-    with SessionLocal() as db:
-        today_orders = db.scalars(
-            select(Order)
-            .options(
-                joinedload(Order.items),
-                joinedload(Order.customer).joinedload(Customer.user),
-                joinedload(Order.company),
-            )
-            .where(Order.created_at >= today_start, Order.created_at < today_end)
-            .order_by(Order.created_at.desc())
-        ).unique().all()
-
-    summary: dict[str, int] = {}
-    serialized_orders: list[dict] = []
-
-    for order in today_orders:
-        company_name = "Brak firmy"
-        if order.company is not None and order.company.name:
-            company_name = order.company.name
-        elif order.customer and order.customer.company and order.customer.company.name:
-            company_name = order.customer.company.name
-
-        customer_identifier = order.customer.email
-        if order.customer and order.customer.user and order.customer.user.username:
-            customer_identifier = order.customer.user.username
-
-        lines = []
-        for item in order.items:
-            name = item.name or "Pozycja"
-            summary[name] = summary.get(name, 0) + item.qty
-            lines.append({
-                "name": name,
-                "qty": item.qty,
-                "unit_price": item.unit_price,
-            })
-
-        serialized_orders.append(
-            {
-                "id": order.id,
-                "time": order.created_at.astimezone().strftime("%H:%M") if order.created_at.tzinfo else order.created_at.strftime("%H:%M"),
-                "company_name": company_name,
-                "customer_identifier": customer_identifier,
-                "notes": order.notes,
-                "cutlery": order.cutlery,
-                "cutlery_price": order.cutlery_price,
-                "order_lines": lines,
-                "total_amount": order.total_amount,
-            }
-        )
-
-    summary_rows = [{"item": name, "qty": qty} for name, qty in sorted(summary.items(), key=lambda x: x[0].lower())]
+    payload = _build_restaurant_today_orders_payload()
 
     return render_template(
         request,
         "restaurant_orders_today.html",
-        {"summary_rows": summary_rows, "orders": serialized_orders},
+        {"summary_rows": payload["summary_rows"], "orders": payload["orders"], "today": payload["today"]},
+    )
+
+
+@app.get("/restaurant/orders/today/export.pdf")
+def restaurant_orders_today_export_pdf(request: Request):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    payload = _build_restaurant_today_orders_payload()
+    styles = getSampleStyleSheet()
+    content: list = []
+    content.append(Paragraph(f"Zamówienia na dziś — {payload['today']}", styles["Title"]))
+    content.append(Paragraph(f"Wygenerowano: {payload['generated_at']}", styles["Normal"]))
+    if payload["delivery_window"]:
+        content.append(Paragraph(f"Okno dostawy: {payload['delivery_window']}", styles["Normal"]))
+    if payload["cutoff"]:
+        content.append(Paragraph(f"Cut-off: {payload['cutoff']}", styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    if not payload["orders"]:
+        content.append(Paragraph("Brak zamówień na dziś.", styles["Normal"]))
+    else:
+        content.append(Paragraph("Podsumowanie (łącznie)", styles["Heading2"]))
+        summary_table = Table(
+            [["Item", "Ilość"], *[[row["item"], str(row["qty"])] for row in payload["summary_rows"]]],
+            colWidths=[360, 100],
+        )
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ]
+            )
+        )
+        content.append(summary_table)
+        content.append(Spacer(1, 12))
+        content.append(Paragraph("Lista zamówień", styles["Heading2"]))
+        for order in payload["orders"]:
+            cutlery_text = f"Tak (+{_format_decimal_pln(order['cutlery_price'])} zł)" if order["cutlery"] else "Nie"
+            content.append(Paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}", styles["Heading4"]))
+            content.append(Paragraph(f"Klient: {order['customer_identifier']}", styles["Normal"]))
+            content.append(Paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}", styles["Normal"]))
+            for item in order["order_lines"]:
+                content.append(Paragraph(f"• {item['name']} x{item['qty']} ({_format_decimal_pln(item['unit_price'])} zł)", styles["Normal"]))
+            content.append(Paragraph(f"Razem: {_format_decimal_pln(order['total_amount'])} zł", styles["Normal"]))
+            content.append(Paragraph("_" * 110, styles["Normal"]))
+
+    buffer = BytesIO()
+    SimpleDocTemplate(buffer, pagesize=A4).build(content)
+    filename = f"zamowienia_{payload['today']}.pdf"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/restaurant/orders/today/export.docx")
+def restaurant_orders_today_export_docx(request: Request):
+    from docx import Document
+
+    current = _require_role_page(request, {"RESTAURANT", "ADMIN"})
+    if isinstance(current, RedirectResponse):
+        return current
+
+    payload = _build_restaurant_today_orders_payload()
+    doc = Document()
+    doc.add_heading(f"Zamówienia na dziś — {payload['today']}", level=1)
+    doc.add_paragraph(f"Wygenerowano: {payload['generated_at']}")
+    if payload["delivery_window"]:
+        doc.add_paragraph(f"Okno dostawy: {payload['delivery_window']}")
+    if payload["cutoff"]:
+        doc.add_paragraph(f"Cut-off: {payload['cutoff']}")
+
+    if not payload["orders"]:
+        doc.add_paragraph("Brak zamówień na dziś.")
+    else:
+        doc.add_heading("Podsumowanie (łącznie)", level=2)
+        table = doc.add_table(rows=1, cols=2)
+        table.rows[0].cells[0].text = "Item"
+        table.rows[0].cells[1].text = "Ilość"
+        for row in payload["summary_rows"]:
+            cells = table.add_row().cells
+            cells[0].text = row["item"]
+            cells[1].text = str(row["qty"])
+
+        doc.add_heading("Lista zamówień", level=2)
+        for order in payload["orders"]:
+            cutlery_text = f"Tak (+{_format_decimal_pln(order['cutlery_price'])} zł)" if order["cutlery"] else "Nie"
+            doc.add_paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}")
+            doc.add_paragraph(f"Klient: {order['customer_identifier']}")
+            doc.add_paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}")
+            for item in order["order_lines"]:
+                doc.add_paragraph(f"{item['name']} x{item['qty']} ({_format_decimal_pln(item['unit_price'])} zł)", style="List Bullet")
+            doc.add_paragraph(f"Razem: {_format_decimal_pln(order['total_amount'])} zł")
+            doc.add_paragraph("-" * 80)
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    filename = f"zamowienia_{payload['today']}.docx"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

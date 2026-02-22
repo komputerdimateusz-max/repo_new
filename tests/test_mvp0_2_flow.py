@@ -1,10 +1,14 @@
+from io import BytesIO
+from zipfile import ZipFile
 from decimal import Decimal
+from datetime import timedelta
 from uuid import uuid4
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, startup
 from app.db.session import SessionLocal
-from app.models import MenuItem, RestaurantSetting, User
+from app.models import MenuItem, Order, RestaurantSetting, User
 from app.core.security import get_password_hash
 
 startup()
@@ -220,6 +224,8 @@ def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
 
     html = page.text
     assert 'Zamówienia na dziś' in html
+    assert 'Pobierz PDF' in html
+    assert 'Pobierz Word' in html
     assert company_name in html
     assert 'Uwagi:</strong> A' in html
     assert 'Uwagi:</strong> B' in html
@@ -236,6 +242,24 @@ def test_restaurant_orders_today_page_shows_summary_and_order_details() -> None:
     payload_b = order_b.json()
     assert f"{Decimal(payload_a['total_amount']):.2f}" in html
     assert f"{Decimal(payload_b['total_amount']):.2f}" in html
+
+    pytest.importorskip('reportlab')
+    export_pdf = client.get('/restaurant/orders/today/export.pdf')
+    assert export_pdf.status_code == 200
+    assert export_pdf.headers['content-type'].startswith('application/pdf')
+    assert 'attachment; filename="zamowienia_' in export_pdf.headers['content-disposition']
+    assert b'%PDF' in export_pdf.content[:10]
+
+    pytest.importorskip('docx')
+    export_docx = client.get('/restaurant/orders/today/export.docx')
+    assert export_docx.status_code == 200
+    assert export_docx.headers['content-type'].startswith('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    assert 'attachment; filename="zamowienia_' in export_docx.headers['content-disposition']
+    archive = ZipFile(BytesIO(export_docx.content))
+    doc_xml = archive.read('word/document.xml').decode('utf-8')
+    assert 'Zamówienia na dziś' in doc_xml
+    assert item1['name'] in doc_xml
+    assert item2['name'] in doc_xml
 
 
 def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
@@ -291,6 +315,43 @@ def test_order_visible_in_debug_my_today_and_restaurant_today_views() -> None:
     restaurant_today_page = client.get('/restaurant/orders/today')
     assert restaurant_today_page.status_code == 200
     assert f'#{created_id}' in restaurant_today_page.text
+
+
+def test_restaurant_today_exports_show_empty_message_when_no_orders() -> None:
+    allow_orders_now()
+    with SessionLocal() as db:
+        restaurant_user = db.query(User).filter(User.username == 'restaurant_empty_exports').first()
+        if restaurant_user is None:
+            db.add(
+                User(
+                    username='restaurant_empty_exports',
+                    password_hash=get_password_hash('restpass'),
+                    role='RESTAURANT',
+                    email='restaurant_empty_exports@example.com',
+                    is_active=True,
+                )
+            )
+        for order in db.query(Order).all():
+            order.created_at = order.created_at - timedelta(days=1)
+        db.commit()
+
+    rest_login = client.post('/login', data={'username': 'restaurant_empty_exports', 'password': 'restpass'}, follow_redirects=False)
+    assert rest_login.status_code == 303
+
+    page = client.get('/restaurant/orders/today')
+    assert page.status_code == 200
+
+    pytest.importorskip('reportlab')
+    export_pdf = client.get('/restaurant/orders/today/export.pdf')
+    assert export_pdf.status_code == 200
+    assert b'Brak zam' in export_pdf.content
+
+    pytest.importorskip('docx')
+    export_docx = client.get('/restaurant/orders/today/export.docx')
+    assert export_docx.status_code == 200
+    archive = ZipFile(BytesIO(export_docx.content))
+    doc_xml = archive.read('word/document.xml').decode('utf-8')
+    assert 'Brak zamówień na dziś.' in doc_xml
 
 
 def test_repeat_order_allows_multiple_orders_without_confirmation() -> None:
