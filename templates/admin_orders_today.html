@@ -1,7 +1,47 @@
-<!doctype html><html><body><h1>Today Orders</h1><nav><a href="/admin/settings">Settings</a> | <a href="/admin/menu">Menu</a> | <a href="/admin/specials">Specials</a></nav><a href="/admin/orders/today.csv">Export CSV</a><table border="1"><thead><tr><th>time</th><th>company</th><th>customer</th><th>items</th><th>notes</th><th>payment</th><th>totals</th><th>status</th><th>actions</th></tr></thead><tbody id="rows"></tbody></table>
+<!doctype html>
+<html>
+<body>
+  <h1>Today Orders</h1>
+  <nav><a href="/admin/settings">Settings</a> | <a href="/admin/menu">Menu</a> | <a href="/admin/specials">Specials</a></nav>
+
+  <p>
+    <a href="/admin/orders/today.csv">Export CSV</a> |
+    <a href="/admin/orders/today/export/combined.pdf">Pobierz PDF (zbiorczy)</a> |
+    <a href="/admin/orders/today/export/companies.zip">Pobierz PDF (osobne dla firm) - ZIP</a>
+  </p>
+
+  <label for="company-preview">Podgląd: wybierz firmę -&gt; PDF</label>
+  <select id="company-preview"></select>
+  <button type="button" onclick="downloadSelectedCompanyPdf()">Pobierz PDF firmy</button>
+
+  <table border="1">
+    <thead>
+      <tr><th>time</th><th>company</th><th>customer</th><th>items</th><th>notes</th><th>payment</th><th>totals</th><th>status</th><th>actions</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
 <script>
 function money(v){return Number(v).toFixed(2);}
-async function load(){const data=await fetch('/api/v1/admin/orders/today').then(r=>r.json());document.getElementById('rows').innerHTML=data.map(o=>`<tr><td>${o.created_at}</td><td>${o.company_name || o.company_id}</td><td>${o.customer_email}</td><td>${o.items.map(i=>`${i.name || i.menu_item_id} x${i.qty}`).join(', ')}</td><td>${o.notes||''}</td><td>${o.payment_method}</td><td>${money(o.subtotal_amount)} + ${money(o.delivery_fee)} = ${money(o.total_amount)}</td><td>${o.status}</td><td><button onclick="setStatus(${o.order_id},'CONFIRMED')">Confirm</button><button onclick="setStatus(${o.order_id},'CANCELLED')">Cancel</button></td></tr>`).join('');}
+function escapeQueryValue(v){return encodeURIComponent(v || '');}
+function populateCompanySelect(data){
+  const select=document.getElementById('company-preview');
+  const uniq=[...new Set(data.map(o=>o.company_name || `Firma #${o.company_id}`))].sort((a,b)=>a.localeCompare(b,'pl'));
+  select.innerHTML=uniq.map(name=>`<option value="${name}">${name}</option>`).join('');
+}
+function downloadSelectedCompanyPdf(){
+  const select=document.getElementById('company-preview');
+  const selected=(select.value || '').trim();
+  const base='/admin/orders/today/export/company.pdf';
+  window.location.href=selected?`${base}?company=${escapeQueryValue(selected)}`:base;
+}
+async function load(){
+  const data=await fetch('/api/v1/admin/orders/today').then(r=>r.json());
+  populateCompanySelect(data);
+  document.getElementById('rows').innerHTML=data.map(o=>`<tr><td>${o.created_at}</td><td>${o.company_name || o.company_id}</td><td>${o.customer_email}</td><td>${o.items.map(i=>`${i.name || i.menu_item_id} x${i.qty}`).join(', ')}</td><td>${o.notes||''}</td><td>${o.payment_method}</td><td>${money(o.subtotal_amount)} + ${money(o.delivery_fee)} = ${money(o.total_amount)}</td><td>${o.status}</td><td><button onclick="setStatus(${o.order_id},'CONFIRMED')">Confirm</button><button onclick="setStatus(${o.order_id},'CANCELLED')">Cancel</button></td></tr>`).join('');
+}
 async function setStatus(id,status){await fetch('/api/v1/admin/orders/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load();}
 load();
-</script></body></html>
+</script>
+</body>
+</html>
