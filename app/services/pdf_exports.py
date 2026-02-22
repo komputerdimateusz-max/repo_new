@@ -95,13 +95,10 @@ def _company_section_story(orders: list[dict[str, Any]], company_key: CompanyKey
         return story
 
     item_summary: dict[str, int] = defaultdict(int)
-    company_total = Decimal("0.00")
-
     for order in orders:
         for item in order.get("order_lines") or []:
             item_name = item.get("name") or "Pozycja"
             item_summary[item_name] += int(item.get("qty") or 0)
-        company_total += Decimal(order.get("total_amount") or 0)
 
     summary_table = rl["Table"](
         [["Item", "Ilość"], *[[name, str(qty)] for name, qty in sorted(item_summary.items(), key=lambda x: x[0].lower())]],
@@ -131,8 +128,6 @@ def _company_section_story(orders: list[dict[str, Any]], company_key: CompanyKey
         story.append(rl["Paragraph"](f"Razem: {_format_decimal_pln(order.get('total_amount') or 0)} zł", styles["normal"]))
         story.append(rl["Paragraph"]("_" * 110, styles["normal"]))
 
-    story.append(_reportlab()["Spacer"](1, 8))
-    story.append(rl["Paragraph"](f"Suma firmy: {_format_decimal_pln(company_total)} zł", styles["heading"]))
     return story
 
 
@@ -171,16 +166,11 @@ def render_pdf_combined(all_orders_df: Iterable[dict[str, Any]], meta: dict[str,
         _reportlab()["Spacer"](1, 12),
     ]
 
-    grand_total = Decimal("0.00")
     for index, key in enumerate(keys):
         orders = grouped[key]
-        grand_total += sum((Decimal(order.get("total_amount") or 0) for order in orders), start=Decimal("0.00"))
         story.extend(_company_section_story(orders, key, styles, meta))
         if index < len(keys) - 1:
             story.append(_reportlab()["PageBreak"]())
-
-    story.append(_reportlab()["Spacer"](1, 8))
-    story.append(_reportlab()["Paragraph"](f"Suma łączna: {_format_decimal_pln(grand_total)} zł", styles["heading"]))
 
     buffer = BytesIO()
     rl = _reportlab()
