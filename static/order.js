@@ -256,6 +256,10 @@ async function loadMenu(category = '') {
 }
 
 async function submitOrder() {
+  const checkoutBtn = document.querySelector('[data-checkout-btn]');
+  if (checkoutBtn) {
+    checkoutBtn.disabled = true;
+  }
   const payload = {
     notes: state.cart.notes,
     payment_method: state.cart.payment_method,
@@ -283,6 +287,8 @@ async function submitOrder() {
     wireSidebarInputs();
   } catch (error) {
     setMessage(error.detail || 'Nie udało się złożyć zamówienia.', true);
+  } finally {
+    updateCheckoutState();
   }
 }
 

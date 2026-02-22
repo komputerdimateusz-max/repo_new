@@ -200,6 +200,7 @@ def _build_restaurant_today_orders_payload() -> dict:
         serialized_orders.append(
             {
                 "id": order.id,
+                "order_number": order.order_number,
                 "time": order.created_at.astimezone().strftime("%H:%M") if order.created_at.tzinfo else order.created_at.strftime("%H:%M"),
                 "company_name": company_name,
                 "customer_identifier": customer_identifier,
@@ -235,6 +236,7 @@ def _build_admin_company_orders_payload() -> dict:
         shaped_orders.append(
             {
                 "id": order["id"],
+                "order_number": order.get("order_number"),
                 "time": order["time"],
                 "company_name": order.get("company_name") or "Brak firmy",
                 "company_address": order.get("company_address") or "",
@@ -1042,7 +1044,7 @@ def restaurant_orders_today_export_pdf(request: Request):
         content.append(Paragraph("Lista zamówień", heading_style))
         for order in payload["orders"]:
             cutlery_text = f"Tak (+{_format_decimal_pln(order['cutlery_price'])} zł)" if order["cutlery"] else "Nie"
-            content.append(Paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}", order_heading_style))
+            content.append(Paragraph(f"Nr zamówienia: {order.get('order_number') or '-'} • #{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}", order_heading_style))
             content.append(Paragraph(f"Klient: {order['customer_identifier']}", normal_style))
             content.append(Paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}", normal_style))
             for item in order["order_lines"]:
@@ -1092,7 +1094,7 @@ def restaurant_orders_today_export_docx(request: Request):
         doc.add_heading("Lista zamówień", level=2)
         for order in payload["orders"]:
             cutlery_text = f"Tak (+{_format_decimal_pln(order['cutlery_price'])} zł)" if order["cutlery"] else "Nie"
-            doc.add_paragraph(f"#{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}")
+            doc.add_paragraph(f"Nr zamówienia: {order.get('order_number') or '-'} • #{order['id']} • {order['time']} • Firma: {order['company_name']} • Sztućce: {cutlery_text}")
             doc.add_paragraph(f"Klient: {order['customer_identifier']}")
             doc.add_paragraph(f"Uwagi: {order['notes'] if order['notes'] else '-'}")
             for item in order["order_lines"]:

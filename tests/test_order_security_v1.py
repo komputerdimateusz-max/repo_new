@@ -109,3 +109,82 @@ def test_restaurant_can_export_after_cutoff(tmp_path: Path, monkeypatch) -> None
 
     assert response.status_code == 200
     assert "text/csv" in response.headers.get("content-type", "")
+
+
+def test_duplicate_submission_returns_existing_order(tmp_path: Path, monkeypatch) -> None:
+    session_local = _prepare_db(tmp_path, monkeypatch)
+    with session_local() as db:
+        db.add(
+            RestaurantSetting(
+                id=1,
+                cut_off_time="23:59",
+                delivery_fee=Decimal("10.00"),
+                cutlery_price=Decimal("1.00"),
+                delivery_window_start="10:00",
+                delivery_window_end="12:00",
+            )
+        )
+        company = Company(name="Factory", is_active=True)
+        db.add(company)
+        db.flush()
+        customer_user = User(username="customer", password_hash=get_password_hash("pass"), role="CUSTOMER", is_active=True)
+        db.add(customer_user)
+        db.flush()
+        db.add(Customer(user_id=customer_user.id, name="C1", email="c1@example.com", company_id=company.id))
+        soup = MenuItem(name="Soup", description="", price=Decimal("20.00"), category="Zupy", is_standard=True, is_active=True)
+        db.add(soup)
+        db.commit()
+
+    payload = {
+        "notes": "abc",
+        "payment_method": "BLIK",
+        "cutlery": False,
+        "items": [{"menu_item_id": 1, "qty": 1}],
+    }
+
+    with TestClient(app) as client:
+        client.post("/login", data={"username": "customer", "password": "pass"}, follow_redirects=False)
+        first = client.post("/api/v1/orders", json=payload)
+        second = client.post("/api/v1/orders", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["order_id"] == second.json()["order_id"]
+    assert second.json()["message"] == "Zamówienie już zostało utworzone"
+
+
+def test_order_number_increments_per_day(tmp_path: Path, monkeypatch) -> None:
+    session_local = _prepare_db(tmp_path, monkeypatch)
+    with session_local() as db:
+        db.add(
+            RestaurantSetting(
+                id=1,
+                cut_off_time="23:59",
+                delivery_fee=Decimal("10.00"),
+                cutlery_price=Decimal("1.00"),
+                delivery_window_start="10:00",
+                delivery_window_end="12:00",
+            )
+        )
+        company = Company(name="Factory", is_active=True)
+        db.add(company)
+        db.flush()
+        customer_user = User(username="customer", password_hash=get_password_hash("pass"), role="CUSTOMER", is_active=True)
+        db.add(customer_user)
+        db.flush()
+        db.add(Customer(user_id=customer_user.id, name="C1", email="c1@example.com", company_id=company.id))
+        db.add_all([
+            MenuItem(name="Soup", description="", price=Decimal("20.00"), category="Zupy", is_standard=True, is_active=True),
+            MenuItem(name="Tea", description="", price=Decimal("10.00"), category="Napoje", is_standard=True, is_active=True),
+        ])
+        db.commit()
+
+    with TestClient(app) as client:
+        client.post("/login", data={"username": "customer", "password": "pass"}, follow_redirects=False)
+        first = client.post("/api/v1/orders", json={"payment_method": "BLIK", "cutlery": False, "items": [{"menu_item_id": 1, "qty": 1}]})
+        second = client.post("/api/v1/orders", json={"payment_method": "BLIK", "cutlery": False, "items": [{"menu_item_id": 2, "qty": 1}]})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["order_number"].endswith("-001")
+    assert second.json()["order_number"].endswith("-002")

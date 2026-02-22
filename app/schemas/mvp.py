@@ -67,6 +67,8 @@ class OrderCreateRequest(BaseModel):
 
 class OrderCreateResponse(BaseModel):
     order_id: int
+    order_number: str | None = None
+    message: str | None = None
     status: str
     subtotal_amount: Decimal
     delivery_fee: Decimal
@@ -90,6 +92,7 @@ class OrderTodayItemRead(BaseModel):
 
 class OrderTodayRead(BaseModel):
     order_id: int
+    order_number: str | None = None
     company_id: int
     company_name: str | None = None
     customer_email: str

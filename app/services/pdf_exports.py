@@ -119,7 +119,7 @@ def _company_section_story(orders: list[dict[str, Any]], company_key: CompanyKey
     story.append(rl["Paragraph"]("Lista zamówień", styles["heading"]))
     for order in orders:
         payment = order.get("payment_status") or order.get("payment_method") or "-"
-        story.append(rl["Paragraph"](f"#{order.get('id', '-')} • {order.get('time', '-')} • Płatność: {payment}", styles["order_heading"]))
+        story.append(rl["Paragraph"](f"Nr zamówienia: {order.get('order_number') or '-'} • #{order.get('id', '-')} • {order.get('time', '-')} • Płatność: {payment}", styles["order_heading"]))
         story.append(rl["Paragraph"](f"Klient: {order.get('user_name') or order.get('customer_identifier') or '-'}", styles["normal"]))
         story.append(rl["Paragraph"](f"Uwagi: {order.get('notes') or '-'}", styles["normal"]))
         for item in order.get("order_lines") or []:

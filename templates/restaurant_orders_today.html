@@ -34,7 +34,7 @@
       <h2>Lista zamówień</h2>
       {% for order in orders %}
         <section style="border:1px solid #ccc; padding:10px; margin:10px 0;">
-          <div><strong>#{{ order.id }} • {{ order.time }} • Firma: {{ order.company_name }} • Sztućce:
+          <div><strong>Nr zamówienia: {{ order.order_number or '-' }} • #{{ order.id }} • {{ order.time }} • Firma: {{ order.company_name }} • Sztućce:
             {% if order.cutlery %}Tak (+{{ "%.2f"|format(order.cutlery_price) }} zł){% else %}Nie{% endif %}
           </strong></div>
           <div>Klient: {{ order.customer_identifier }}</div>
